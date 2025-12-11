@@ -1,1 +1,3 @@
-./.vscode/
+.vscode/
+/server/.gitignore
+/server/radb.egg-info/
