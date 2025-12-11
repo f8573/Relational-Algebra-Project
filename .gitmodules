@@ -1,6 +1,0 @@
-[submodule "frontend"]
-	path = frontend
-	url = https://github.com/f8573/radb.git
-[submodule "backend"]
-	path = backend
-	url = https://github.com/f8573/radb-core.git

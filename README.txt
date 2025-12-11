@@ -2,12 +2,12 @@ Here's how to use this.
 radb is the frontend, radb-core is the backend.
 To use, run these commands in order.
 
-cd radb-core
+cd backend
 pip install
 pip install -e .
 python server.py
 
-Open radb/index.html in browser to your heart's content. However, as I've removed the .db file, you'll be working with a completely blank one.
+Open frontend/index.html in browser to your heart's content. However, as I've removed the .db file, you'll be working with a completely blank one.
 You'll need to navigate to the Raw LaTeX tab, and write out some SQL commands.
 
 e.g. :
