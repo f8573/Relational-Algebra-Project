@@ -1,4 +1,4 @@
-# Generated from RAParser.g4 by ANTLR 4.13.2
+# Generated from RAParser.g4 by ANTLR 4.13.0
 from antlr4 import *
 if "." in __name__:
     from .RAParser import RAParser
@@ -11,6 +11,11 @@ class RAParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by RAParser#numberLiteralValExpr.
     def visitNumberLiteralValExpr(self, ctx:RAParser.NumberLiteralValExprContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by RAParser#textValExpr.
+    def visitTextValExpr(self, ctx:RAParser.TextValExprContext):
         return self.visitChildren(ctx)
 
 
@@ -36,6 +41,11 @@ class RAParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by RAParser#orExpr.
     def visitOrExpr(self, ctx:RAParser.OrExprContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by RAParser#valExprBraced.
+    def visitValExprBraced(self, ctx:RAParser.ValExprBracedContext):
         return self.visitChildren(ctx)
 
 
@@ -94,6 +104,31 @@ class RAParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by RAParser#intersectExpr.
+    def visitIntersectExpr(self, ctx:RAParser.IntersectExprContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by RAParser#textRelExpr.
+    def visitTextRelExpr(self, ctx:RAParser.TextRelExprContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by RAParser#relExprParenthesized.
+    def visitRelExprParenthesized(self, ctx:RAParser.RelExprParenthesizedContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by RAParser#diffExpr.
+    def visitDiffExpr(self, ctx:RAParser.DiffExprContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by RAParser#unionExpr.
+    def visitUnionExpr(self, ctx:RAParser.UnionExprContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by RAParser#relRef.
     def visitRelRef(self, ctx:RAParser.RelRefContext):
         return self.visitChildren(ctx)
@@ -101,11 +136,6 @@ class RAParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by RAParser#renameExpr.
     def visitRenameExpr(self, ctx:RAParser.RenameExprContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by RAParser#intersectExpr.
-    def visitIntersectExpr(self, ctx:RAParser.IntersectExprContext):
         return self.visitChildren(ctx)
 
 
@@ -119,13 +149,13 @@ class RAParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by RAParser#relExprParenthesized.
-    def visitRelExprParenthesized(self, ctx:RAParser.RelExprParenthesizedContext):
+    # Visit a parse tree produced by RAParser#crossExpr.
+    def visitCrossExpr(self, ctx:RAParser.CrossExprContext):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by RAParser#crossExpr.
-    def visitCrossExpr(self, ctx:RAParser.CrossExprContext):
+    # Visit a parse tree produced by RAParser#relExprBraced.
+    def visitRelExprBraced(self, ctx:RAParser.RelExprBracedContext):
         return self.visitChildren(ctx)
 
 
@@ -136,16 +166,6 @@ class RAParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by RAParser#projectExpr.
     def visitProjectExpr(self, ctx:RAParser.ProjectExprContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by RAParser#diffExpr.
-    def visitDiffExpr(self, ctx:RAParser.DiffExprContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by RAParser#unionExpr.
-    def visitUnionExpr(self, ctx:RAParser.UnionExprContext):
         return self.visitChildren(ctx)
 
 
@@ -196,6 +216,11 @@ class RAParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by RAParser#program.
     def visitProgram(self, ctx:RAParser.ProgramContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by RAParser#textAtom.
+    def visitTextAtom(self, ctx:RAParser.TextAtomContext):
         return self.visitChildren(ctx)
 
 

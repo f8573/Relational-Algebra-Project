@@ -13,6 +13,12 @@ logger = logging.getLogger('ra')
 
 ######################################################################
 
+# --- NEW HELPER: ANSI SQL Identifier Quoting ---
+def quote_ident(name):
+    """Wraps a table/column name in double quotes for SQL safety."""
+    return '"{}"'.format(name.replace('"', '""'))
+# -----------------------------------------------
+
 class Context:
     def __init__(self, configured, db, check, views):
         self.configured = configured
@@ -180,17 +186,15 @@ class AttrRef(ValExpr):
         assert isinstance(name, str)
         self.rel = rel
         self.name = name
+        self.is_auto_string = False 
+        
     def __str__(self):
         if self.rel is None:
             return self.name
         else:
             return self.rel + literal(sym.DOT) + self.name
+            
     def validateSubtree(self, context: StatementContext, relexpr, allow_aggr=False):
-        """Validate this attribute reference (in the scope of the given
-        RelExpr) and set its type (as a ValType) and internal
-        reference (used in translation), using the input RelTypes of
-        the RelExpr to resolve attribute references.
-        """
         self.type = None
         self.internal_ref = None
         for ridx, relinput in enumerate(relexpr.inputs):
@@ -201,16 +205,30 @@ class AttrRef(ValExpr):
                         raise ValidationError('ambiguous attribute reference', self, relexpr)
                     self.type = attrspec.type
                     self.internal_ref = (ridx, aidx)
+        
+        # Fallback to String Literal
         if self.internal_ref is None:
+            if self.rel is None:
+                self.is_auto_string = True
+                self.type = ValType.STRING
+                return
             raise ValidationError('invalid attribute reference', self, relexpr)
+
     def checkSubtreeGroupInvariant(self, relexpr: 'Aggr'):
+        if self.is_auto_string:
+            return
         if all(self.internal_ref != groupby.internal_ref\
-               for groupby in relexpr.groupbys if isinstance(groupby, AttrRef)):
+               for groupby in relexpr.groupbys if isinstance(groupby, AttrRef) and not groupby.is_auto_string):
             raise ValidationError('attribute must be aggregated or in the group-by list',
                                   self, relexpr)
     def info(self):
+        if self.is_auto_string:
+            return "'{}' (auto-quoted)".format(self.name)
         return '{}[{}.{}]'.format(self, *self.internal_ref)
+        
     def sql(self, relexpr):
+        if self.is_auto_string:
+            return str_to_sqlstr(self.name)
         ridx, aidx = self.internal_ref
         return '{}.{}'.format(relexpr.inputs[ridx].type.sql_rel(),
                               relexpr.inputs[ridx].type.sql_attr(aidx))
@@ -305,17 +323,16 @@ class RelExpr(Node):
         query = 'WITH ' + ',\n     '.join(blocks)
         query += '\nSELECT * FROM {}'.format(self.type.sql_rel())
         logger.debug('SQL generated:\n' + query)
-
-        # --- NEW PRINT STATEMENT ---
+        
+        # --- PRINT RAW SQL ---
         print("\n--- Generated SQL ---")
         print(query)
         print("---------------------\n")
-        # ---------------------------
+        # ---------------------
 
         try:
             print('({})'.format(', '.join(self.type.str_attr_names_and_types())))
             context.db.execute_and_print_result(query)
-# ...
         except Exception as e:
             raise ExecutionError('SQL error in translated query:\n{}\n{}'.format(query, e)) from e
     @staticmethod
@@ -357,8 +374,9 @@ class RelRef(RelExpr):
                 yield ('\\_' if i == 0 else '  ') + line
     def sql(self):
         if self.view is None:
+            # --- UPDATED: Use quote_ident here ---
             yield '{}({}) AS (SELECT * FROM {})'\
-                .format(self.type.sql_rel(), ', '.join(self.type.sql_attrs()), self.rel)
+                .format(self.type.sql_rel(), ', '.join(self.type.sql_attrs()), quote_ident(self.rel))
         else:
             for block in self.view.sql():
                 yield block
@@ -431,7 +449,7 @@ class Project(RelExpr):
         output_attrspecs = list()
         for attr in self.attrs:
             attr.validateSubtree(context, self)
-            if isinstance(attr, AttrRef):
+            if isinstance(attr, AttrRef) and not attr.is_auto_string:
                 _, aidx = attr.internal_ref
                 output_attrspecs.append(self.inputs[0].type.attrs[aidx])
             else:
@@ -564,6 +582,7 @@ class Join(RelExpr):
             yield ('\\_' if i == 0 else '| ') + line
         for i, line in enumerate(self.inputs[1].info()):
             yield ('\\_' if i == 0 else '  ') + line
+
     def _get_sql_parts(self):
         """Helper to return (select_clause, where_clause_or_on_clause, is_natural)"""
         select = '*'
@@ -595,9 +614,10 @@ class Join(RelExpr):
         return select, predicate, is_natural
 
     def sql(self):
-        # Original implicit join behavior (unchanged logic, just refactored)
-        for block in self.inputs[0].sql(): yield block
-        for block in self.inputs[1].sql(): yield block
+        for block in self.inputs[0].sql():
+            yield block
+        for block in self.inputs[1].sql():
+            yield block
         
         select, predicate, _ = self._get_sql_parts()
         where = (' WHERE ' + predicate) if predicate else ''
@@ -661,7 +681,7 @@ class Aggr(RelExpr):
         output_attrspecs = list()
         for groupby in self.groupbys:
             groupby.validateSubtree(context, self)
-            if isinstance(groupby, AttrRef):
+            if isinstance(groupby, AttrRef) and not groupby.is_auto_string:
                 _, aidx = groupby.internal_ref
                 output_attrspecs.append(self.inputs[0].type.attrs[aidx])
             else:
@@ -669,8 +689,8 @@ class Aggr(RelExpr):
         for aggr in self.aggrs:
             aggr.validateSubtree(context, self, allow_aggr=True)
             aggr.checkSubtreeGroupInvariant(self)
-            if isinstance(aggr, AttrRef): # rare, but techincally possible
-                _, aidx = groupby.internal_ref
+            if isinstance(aggr, AttrRef) and not aggr.is_auto_string: # rare, but techincally possible
+                _, aidx = aggr.internal_ref # Fixed bug: was groupby.internal_ref
                 output_attrspecs.append(self.inputs[0].type.attrs[aidx])
             else:
                 output_attrspecs.append(AttrSpec(None, None, aggr.type))
@@ -766,6 +786,45 @@ class Diff(SetOp):
 
 class Intersect(SetOp):
     pass
+
+class OuterJoin(Join):
+    def __init__(self, left, cond, right, join_type_sql):
+        super(OuterJoin, self).__init__(left, cond, right)
+        self.join_type_sql = join_type_sql
+
+    def sql(self):
+        # 1. Yield CTEs for inputs
+        for block in self.inputs[0].sql(): yield block
+        for block in self.inputs[1].sql(): yield block
+
+        # 2. Get predicates
+        select, predicate, is_natural = self._get_sql_parts()
+        
+        # 3. Handle Natural Join vs Explicit Condition
+        # If natural, predicate is the list of equalities (A.id = B.id)
+        # If explicit, predicate is the user's condition
+        on_clause = (' ON ' + predicate) if predicate else ' ON 1=1' 
+        
+        # ANSI SQL Generation
+        yield '{}({}) AS (SELECT {} FROM {} {} {} {})'\
+            .format(self.type.sql_rel(), ', '.join(self.type.sql_attrs()),
+                    select,
+                    self.inputs[0].type.sql_rel(), 
+                    self.join_type_sql,
+                    self.inputs[1].type.sql_rel(),
+                    on_clause)
+
+class LeftJoin(OuterJoin):
+    def __init__(self, left, cond, right):
+        super(LeftJoin, self).__init__(left, cond, right, "LEFT OUTER JOIN")
+
+class RightJoin(OuterJoin):
+    def __init__(self, left, cond, right):
+        super(RightJoin, self).__init__(left, cond, right, "RIGHT OUTER JOIN")
+
+class FullJoin(OuterJoin):
+    def __init__(self, left, cond, right):
+        super(FullJoin, self).__init__(left, cond, right, "FULL OUTER JOIN")
 
 class Define(Node):
     def __init__(self, view, definition):
@@ -999,42 +1058,3 @@ class CommandSqlexec(Command):
             context.db.execute_and_print_result(self.sql)
         except Exception as e:
             raise ExecutionError('SQL error in:\n{}\n{}'.format(self.sql, e)) from e
-
-class OuterJoin(Join):
-    def __init__(self, left, cond, right, join_type_sql):
-        super(OuterJoin, self).__init__(left, cond, right)
-        self.join_type_sql = join_type_sql
-
-    def sql(self):
-        # 1. Yield CTEs for inputs
-        for block in self.inputs[0].sql(): yield block
-        for block in self.inputs[1].sql(): yield block
-
-        # 2. Get predicates
-        select, predicate, is_natural = self._get_sql_parts()
-        
-        # 3. Handle Natural Join vs Explicit Condition
-        # If natural, predicate is the list of equalities (A.id = B.id)
-        # If explicit, predicate is the user's condition
-        on_clause = (' ON ' + predicate) if predicate else ' ON 1=1' 
-        
-        # ANSI SQL Generation
-        yield '{}({}) AS (SELECT {} FROM {} {} {} {})'\
-            .format(self.type.sql_rel(), ', '.join(self.type.sql_attrs()),
-                    select,
-                    self.inputs[0].type.sql_rel(), 
-                    self.join_type_sql,
-                    self.inputs[1].type.sql_rel(),
-                    on_clause)
-
-class LeftJoin(OuterJoin):
-    def __init__(self, left, cond, right):
-        super(LeftJoin, self).__init__(left, cond, right, "LEFT OUTER JOIN")
-
-class RightJoin(OuterJoin):
-    def __init__(self, left, cond, right):
-        super(RightJoin, self).__init__(left, cond, right, "RIGHT OUTER JOIN")
-
-class FullJoin(OuterJoin):
-    def __init__(self, left, cond, right):
-        super(FullJoin, self).__init__(left, cond, right, "FULL OUTER JOIN")

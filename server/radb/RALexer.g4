@@ -1,10 +1,19 @@
 lexer grammar RALexer;
 
+// --- IGNORED COMMANDS ---
 WS : [ \n\t\r]+ -> skip;
 COMMENT : '/*' (COMMENT|.)*? '*/' -> skip;
 LINE_COMMENT : '//' .*? '\n' -> skip;
 TERMINATOR : ';';
 FORCE : '!';
+
+LEFT : '\\left' -> skip;
+RIGHT : '\\right' -> skip;
+SPACE_CMD : '\\space' -> skip;
+
+// --- GROUPING ---
+LBRACE_ESC : '\\{';
+RBRACE_ESC : '\\}';
 
 IS_NULL : IS WS NULL;
 IS_NOT_NULL : IS WS NOT WS NULL;
@@ -15,23 +24,26 @@ AND : A N D;
 OR : O R;
 NOT : N O T;
 
+STRING : '\'' (~('\'' | '\r' | '\n') | '\'\'' | ('\r'? '\n'))* '\'';
+NUMBER : UNSIGNED_INTEGER_FRAGMENT* '.'? UNSIGNED_INTEGER_FRAGMENT+;
+
+// --- KEYWORDS ---
 PI : '\\pi';
 SIGMA : '\\sigma';
 RHO : '\\rho';
 GAMMA : '\\gamma';
-LEFT_ARROW : '\\leftarrow' | '←';  // Accept both LaTeX cmd and unicode
+LEFT_ARROW : '\\leftarrow' | '←';
 CUP : '\\cup' | '∪';
 CAP : '\\cap' | '∩';
 TIMES : '\\times' | '×';
 
-// Unicode Joins
 NATURAL_JOIN_SYMBOL : '⋈';
 LEFT_OUTER_JOIN : '⟕';
 RIGHT_OUTER_JOIN : '⟖';
 FULL_OUTER_JOIN : '⟗';
 
-STRING : '\'' (~('\'' | '\r' | '\n') | '\'\'' | ('\r'? '\n'))* '\'';
-NUMBER : UNSIGNED_INTEGER_FRAGMENT* '.'? UNSIGNED_INTEGER_FRAGMENT+;
+TEXT_CMD : '\\text' -> pushMode(TEXT_MODE);
+
 ID : ('a'..'z' | 'A'..'Z' | '_') ('a'..'z' | 'A'..'Z' | '_' | '0'..'9')*;
 
 RENAME : '\\rename';
@@ -54,7 +66,7 @@ CONCAT : '||';
 PAREN_L : '(';
 PAREN_R : ')';
 ARG_L : '_{';
-ARG_R : '}';
+ARG_R : '}';  // <--- This is the REAL closing brace for RA
 
 GETS : ':-';
 COLON: ':';
@@ -100,8 +112,19 @@ fragment Y : [yY];
 fragment Z : [zZ];
 fragment UNSIGNED_INTEGER_FRAGMENT : ('0'..'9')+;
 
+// --- MODES (Must be at the end) ---
+
+mode TEXT_MODE;
+    TEXT_LBRACE : '{'; 
+    TEXT_CONTENT : (~'}')+;  
+    TEXT_RBRACE : '}' -> popMode;
+
 mode SQLEXEC_MODE;
-SQLEXEC_TEXT : WS? ARG_L
-( ('\'' (~('\'' | '\r' | '\n') | ('\r'? '\n'))* '\'') |
-  ('"' (~('"' | '\r' | '\n') | ('\r'? '\n'))* '"') |
-  ~('\''|'"') )*? ARG_R -> popMode;
+    // We rename these so they don't overwrite ARG_L/ARG_R
+    SQLEXEC_CONTENT 
+        : ( ('\'' (~('\'' | '\r' | '\n') | ('\r'? '\n'))* '\'')
+          | ('"' (~('"' | '\r' | '\n') | ('\r'? '\n'))* '"')
+          | ~('}'|'\''|'"')
+          )+
+        ;
+    ARG_R_SQL : '}' -> popMode;

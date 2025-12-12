@@ -1,4 +1,4 @@
-# Generated from RAParser.g4 by ANTLR 4.13.2
+# Generated from RAParser.g4 by ANTLR 4.13.0
 from antlr4 import *
 if "." in __name__:
     from .RAParser import RAParser
@@ -14,6 +14,15 @@ class RAParserListener(ParseTreeListener):
 
     # Exit a parse tree produced by RAParser#numberLiteralValExpr.
     def exitNumberLiteralValExpr(self, ctx:RAParser.NumberLiteralValExprContext):
+        pass
+
+
+    # Enter a parse tree produced by RAParser#textValExpr.
+    def enterTextValExpr(self, ctx:RAParser.TextValExprContext):
+        pass
+
+    # Exit a parse tree produced by RAParser#textValExpr.
+    def exitTextValExpr(self, ctx:RAParser.TextValExprContext):
         pass
 
 
@@ -59,6 +68,15 @@ class RAParserListener(ParseTreeListener):
 
     # Exit a parse tree produced by RAParser#orExpr.
     def exitOrExpr(self, ctx:RAParser.OrExprContext):
+        pass
+
+
+    # Enter a parse tree produced by RAParser#valExprBraced.
+    def enterValExprBraced(self, ctx:RAParser.ValExprBracedContext):
+        pass
+
+    # Exit a parse tree produced by RAParser#valExprBraced.
+    def exitValExprBraced(self, ctx:RAParser.ValExprBracedContext):
         pass
 
 
@@ -161,6 +179,51 @@ class RAParserListener(ParseTreeListener):
         pass
 
 
+    # Enter a parse tree produced by RAParser#intersectExpr.
+    def enterIntersectExpr(self, ctx:RAParser.IntersectExprContext):
+        pass
+
+    # Exit a parse tree produced by RAParser#intersectExpr.
+    def exitIntersectExpr(self, ctx:RAParser.IntersectExprContext):
+        pass
+
+
+    # Enter a parse tree produced by RAParser#textRelExpr.
+    def enterTextRelExpr(self, ctx:RAParser.TextRelExprContext):
+        pass
+
+    # Exit a parse tree produced by RAParser#textRelExpr.
+    def exitTextRelExpr(self, ctx:RAParser.TextRelExprContext):
+        pass
+
+
+    # Enter a parse tree produced by RAParser#relExprParenthesized.
+    def enterRelExprParenthesized(self, ctx:RAParser.RelExprParenthesizedContext):
+        pass
+
+    # Exit a parse tree produced by RAParser#relExprParenthesized.
+    def exitRelExprParenthesized(self, ctx:RAParser.RelExprParenthesizedContext):
+        pass
+
+
+    # Enter a parse tree produced by RAParser#diffExpr.
+    def enterDiffExpr(self, ctx:RAParser.DiffExprContext):
+        pass
+
+    # Exit a parse tree produced by RAParser#diffExpr.
+    def exitDiffExpr(self, ctx:RAParser.DiffExprContext):
+        pass
+
+
+    # Enter a parse tree produced by RAParser#unionExpr.
+    def enterUnionExpr(self, ctx:RAParser.UnionExprContext):
+        pass
+
+    # Exit a parse tree produced by RAParser#unionExpr.
+    def exitUnionExpr(self, ctx:RAParser.UnionExprContext):
+        pass
+
+
     # Enter a parse tree produced by RAParser#relRef.
     def enterRelRef(self, ctx:RAParser.RelRefContext):
         pass
@@ -176,15 +239,6 @@ class RAParserListener(ParseTreeListener):
 
     # Exit a parse tree produced by RAParser#renameExpr.
     def exitRenameExpr(self, ctx:RAParser.RenameExprContext):
-        pass
-
-
-    # Enter a parse tree produced by RAParser#intersectExpr.
-    def enterIntersectExpr(self, ctx:RAParser.IntersectExprContext):
-        pass
-
-    # Exit a parse tree produced by RAParser#intersectExpr.
-    def exitIntersectExpr(self, ctx:RAParser.IntersectExprContext):
         pass
 
 
@@ -206,21 +260,21 @@ class RAParserListener(ParseTreeListener):
         pass
 
 
-    # Enter a parse tree produced by RAParser#relExprParenthesized.
-    def enterRelExprParenthesized(self, ctx:RAParser.RelExprParenthesizedContext):
-        pass
-
-    # Exit a parse tree produced by RAParser#relExprParenthesized.
-    def exitRelExprParenthesized(self, ctx:RAParser.RelExprParenthesizedContext):
-        pass
-
-
     # Enter a parse tree produced by RAParser#crossExpr.
     def enterCrossExpr(self, ctx:RAParser.CrossExprContext):
         pass
 
     # Exit a parse tree produced by RAParser#crossExpr.
     def exitCrossExpr(self, ctx:RAParser.CrossExprContext):
+        pass
+
+
+    # Enter a parse tree produced by RAParser#relExprBraced.
+    def enterRelExprBraced(self, ctx:RAParser.RelExprBracedContext):
+        pass
+
+    # Exit a parse tree produced by RAParser#relExprBraced.
+    def exitRelExprBraced(self, ctx:RAParser.RelExprBracedContext):
         pass
 
 
@@ -239,24 +293,6 @@ class RAParserListener(ParseTreeListener):
 
     # Exit a parse tree produced by RAParser#projectExpr.
     def exitProjectExpr(self, ctx:RAParser.ProjectExprContext):
-        pass
-
-
-    # Enter a parse tree produced by RAParser#diffExpr.
-    def enterDiffExpr(self, ctx:RAParser.DiffExprContext):
-        pass
-
-    # Exit a parse tree produced by RAParser#diffExpr.
-    def exitDiffExpr(self, ctx:RAParser.DiffExprContext):
-        pass
-
-
-    # Enter a parse tree produced by RAParser#unionExpr.
-    def enterUnionExpr(self, ctx:RAParser.UnionExprContext):
-        pass
-
-    # Exit a parse tree produced by RAParser#unionExpr.
-    def exitUnionExpr(self, ctx:RAParser.UnionExprContext):
         pass
 
 
@@ -347,6 +383,15 @@ class RAParserListener(ParseTreeListener):
 
     # Exit a parse tree produced by RAParser#program.
     def exitProgram(self, ctx:RAParser.ProgramContext):
+        pass
+
+
+    # Enter a parse tree produced by RAParser#textAtom.
+    def enterTextAtom(self, ctx:RAParser.TextAtomContext):
+        pass
+
+    # Exit a parse tree produced by RAParser#textAtom.
+    def exitTextAtom(self, ctx:RAParser.TextAtomContext):
         pass
 
 

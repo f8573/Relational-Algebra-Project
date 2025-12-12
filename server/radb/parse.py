@@ -19,7 +19,11 @@ def fixLiteralNames():
     names = list()
     for i, (literal, symbolic) in enumerate(zip(RAParserBase.literalNames,
                                                 RAParserBase.symbolicNames)):
-        if symbolic == '<INVALID>' or literal != '<INVALID>':
+        if symbolic == 'ARG_L':
+            name = "'_{'"  # FORCE CORRECT REPRESENTATION
+        elif symbolic == 'ARG_R':
+            name = "'}'"   # FORCE CORRECT REPRESENTATION
+        elif symbolic == '<INVALID>' or literal != '<INVALID>':
             # the literal name is already fine here:
             name = literal
         elif i in (RAParserBase.WS, RAParserBase.COMMENT,
@@ -250,9 +254,8 @@ class ASTBuilder(RAParserVisitor):
         return radb.ast.CommandSource(ctx.STRING().getText())
 
     def visitSqlexecCommand(self, ctx):
-        s = ctx.SQLEXEC_TEXT().getText().strip()
-        s = utils.lreplace(s, literal(RAParser.ARG_L), '')
-        s = utils.rreplace(s, literal(RAParser.ARG_R), '')
+        # Changed from SQLEXEC_TEXT (or ARG_L) to SQLEXEC_CONTENT
+        s = ctx.SQLEXEC_CONTENT().getText().strip()
         return radb.ast.CommandSqlexec(s)
 
     def visitStatement(self, ctx):
@@ -260,6 +263,40 @@ class ASTBuilder(RAParserVisitor):
 
     def visitProgram(self, ctx):
         return [ self.visit(statement) for statement in ctx.statement() ]
+    
+    # --- ADD THESE METHODS TO ASTBuilder class ---
+
+    def _clean_latex_text(self, text):
+        if not text:
+            return ""
+        return text.replace(r'\space', ' ')
+
+    def visitTextAtom(self, ctx):
+        if ctx.TEXT_CONTENT() is not None:
+            raw = ctx.TEXT_CONTENT().getText()
+            return self._clean_latex_text(raw).strip()
+        return ""
+
+    def visitTextValExpr(self, ctx):
+        name = self.visit(ctx.textAtom())
+        return radb.ast.AttrRef(None, name)
+
+    def visitTextRelExpr(self, ctx):
+        name = self.visit(ctx.textAtom())
+        return radb.ast.RelRef(name)
+
+    def visitValExprBraced(self, ctx):
+        return self.visit(ctx.valExpr())
+
+    def visitRelExprBraced(self, ctx):
+        return self.visit(ctx.relExpr())
+        
+    def visitDefinition(self, ctx):
+        if ctx.ID():
+            name = ctx.ID().getText()
+        else:
+            name = self.visit(ctx.textAtom())
+        return radb.ast.Define(name, self.visit(ctx.relExpr()))
 
 ######################################################################
 
