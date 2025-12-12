@@ -311,8 +311,7 @@
                         <button class="symbol-btn" data-latex="\pi_{}()">π<sub>☐</sub></button>
                         <button class="symbol-btn" data-latex="\sigma_{}()">σ<sub>☐</sub></button>
                         <button class="symbol-btn" data-latex="\rho_{}()">ρ<sub>☐</sub></button>
-                        <!--<button class="symbol-btn" data-latex="\text" style="font-size: 14px; font-weight: bold;">Text</button>-->
-                        <button class="symbol-btn" data-latex="\space" style="font-size: 14px;">Space</button>
+                        <button class="symbol-btn" data-latex="\text" style="font-size: 14px; font-weight: bold;">Text</button>
 
                         <button class="symbol-btn" data-latex="\gamma_{}()">γ<sub>☐</sub></button>
                         <button class="symbol-btn" data-latex="{}_{} \gamma_{}()"><sub>☐</sub>γ<sub>☐</sub></button>
@@ -338,7 +337,7 @@
                 <button class="action-btn" id="copy-latex">Copy LaTeX</button>
             </div>
 
-            <div class="results-container" style="width: 100%; max-width: 800px; margin-top: 20px;">
+             <div class="results-container" style="width: 100%; max-width: 800px; margin-top: 20px;">
                 <h3 style="color: #333; margin-bottom: 10px;">Results:</h3>
                 <pre id="output-area" style="
                     background: #2d2d2d; 
@@ -358,7 +357,7 @@
         // Initialize MathQuill
         var MQ = MathQuill.getInterface(2);
         var mathField = MQ.MathField(document.getElementById('math-field'), {
-            spaceBehavesLikeTab: true,
+            spaceBehavesLikeTab: false,
             leftRightIntoCmdGoes: 'up',
             restrictMismatchedBrackets: true,
             sumStartsWithNEquals: true,
@@ -369,7 +368,6 @@
             autoOperatorNames: 'sin cos tan sec csc cot sinh cosh tanh log ln exp lim sup inf max min gcd lcm mod',
             handlers: {
                 edit: function() {
-                    // Optional: Auto-sync could go here
                 }
             }
         });
@@ -418,30 +416,20 @@
 
         function switchMode(mode) {
             if (mode === 'pad') {
-                // Sync Data: Raw -> MathQuill
                 mathField.latex(latexInput.value);
-
-                // UI Updates
                 modePadBtn.classList.add('active');
                 modeLatexBtn.classList.remove('active');
-                
                 mathFieldDiv.classList.remove('hidden');
                 latexInput.classList.add('hidden');
                 symbolPad.classList.remove('hidden'); 
-                
                 mathField.focus();
             } else {
-                // Sync Data: MathQuill -> Raw
                 latexInput.value = mathField.latex();
-
-                // UI Updates
                 modeLatexBtn.classList.add('active');
                 modePadBtn.classList.remove('active');
-                
                 latexInput.classList.remove('hidden');
                 mathFieldDiv.classList.add('hidden');
                 symbolPad.classList.add('hidden'); 
-                
                 latexInput.focus();
             }
         }
@@ -464,7 +452,6 @@
         // Copy LaTeX button
         document.getElementById('copy-latex').addEventListener('click', function() {
             var content = !latexInput.classList.contains('hidden') ? latexInput.value : mathField.latex();
-            
             if (content) {
                 navigator.clipboard.writeText(content).then(function() {
                     var btn = document.getElementById('copy-latex');
@@ -479,49 +466,58 @@
             }
         });
 
+        // Run Query Button
+        document.getElementById('run-btn').addEventListener('click', function() {
+            const query = !latexInput.classList.contains('hidden') ? latexInput.value : mathField.latex();
+            const outputArea = document.getElementById('output-area');
+            outputArea.textContent = "Running...";
+            
+            fetch('http://localhost:5001/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: query })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    outputArea.textContent = data.output;
+                    outputArea.style.borderColor = '#4CAF50';
+                } else {
+                    outputArea.textContent = "Error:\n" + data.error;
+                    outputArea.style.borderColor = '#ff4444';
+                }
+            })
+            .catch(error => {
+                outputArea.textContent = "Connection Error: Is server.py running?\n" + error;
+            });
+        });
+
         mathField.focus();
 
         // Keyboard shortcuts
         document.addEventListener('keydown', function(e) {
+            // 1. Check if the user is typing in the Raw LaTeX box
+            if (document.activeElement.id === 'latex-input') {
+                return; // Let default browser behavior happen (typing, selecting, etc.)
+            }
+
+            // Space key for \space
+            if (e.key === ' ') {
+                e.preventDefault();
+                mathField.write('\\space');
+                return;
+            }
+
+            // Ctrl+A to select all in math field
             if (e.ctrlKey && e.key === 'a') {
                 e.preventDefault();
                 mathField.select();
-            } else if (e.ctrlKey && e.key === 'c' && mathField.latex()) {
+            }
+            // Ctrl+C to copy LaTeX
+            else if (e.ctrlKey && e.key === 'c' && mathField.latex()) {
                 navigator.clipboard.writeText(mathField.latex());
             }
         });
-
-        document.getElementById('run-btn').addEventListener('click', function() {
-        // 1. Get content from whichever mode is active (Visual or Raw)
-        const latexInput = document.getElementById('latex-input');
-        const query = !latexInput.classList.contains('hidden') ? latexInput.value : mathField.latex();
-        
-        const outputArea = document.getElementById('output-area');
-        outputArea.textContent = "Running...";
-        
-        // 2. Send to Python Server
-        fetch('http://localhost:5000/run', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ query: query })
-        })
-        .then(response => response.json())
-        .then(data => {
-            // 3. Display Result
-            if (data.status === 'success') {
-                outputArea.textContent = data.output;
-                outputArea.style.borderColor = '#4CAF50'; // Green border for success
-            } else {
-                outputArea.textContent = "Error:\n" + data.error;
-                outputArea.style.borderColor = '#ff4444'; // Red border for error
-            }
-        })
-        .catch(error => {
-            outputArea.textContent = "Connection Error: Is server.py running?\n" + error;
-        });
-    });
     </script>
 </body>
 </html>
