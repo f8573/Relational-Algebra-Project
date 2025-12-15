@@ -62,20 +62,12 @@ def clean_query(raw_query):
     # 1. Fix Underscores (frontend sends \text{_})
     clean = clean.replace(r'\text{_}', '_')
 
-    # 2. Convert Grouping Gamma: {}_{cols} \gamma_{aggrs}  ->  \gamma_{cols: aggrs}
-    # Pattern explanation:
-    # \{ *\}        Matches the empty group {}
-    # *\_ *\{       Matches the subscript start _{
-    # ([^\}]+)      Captures the grouping columns (group 1)
-    # \}            Matches closing brace }
-    # *\\gamma      Matches \gamma
-    # *\_ *\{       Matches the second subscript start _{
-    # ([^\}]+)      Captures the aggregation expressions (group 2)
-    # \}            Matches closing brace }
+    # 2. Convert Grouping Gamma
+    # OLD REGEX: r"\{ *\} *\_ *\{([^\}]+)\} *\\gamma *\_ *\{([^\}]+)\}"
     
-    # Note: We use a non-greedy approach or simple logic assuming no nested braces for now.
+    # NEW REGEX: Matches either \text{} OR {} as the base
     clean = re.sub(
-        r"\{ *\} *\_ *\{([^\}]+)\} *\\gamma *\_ *\{([^\}]+)\}", 
+        r"(?:\\text\{ *\}|\{ *\}) *\_ *\{([^\}]+)\} *\\gamma *\_ *\{([^\}]+)\}", 
         r"\\gamma_{\1: \2}", 
         clean
     )
