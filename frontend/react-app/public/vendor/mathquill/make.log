@@ -1,0 +1,10 @@
+mkdir -p ./build
+touch ./build/.exists--used_by_Makefile
+rm -rf build/fonts
+cp -r src/fonts build/fonts
+./node_modules/.bin/lessc  ./src/css/main.less > build/mathquill.css
+perl -pi -e s/mq-/mq-/g build/mathquill.css
+perl -pi -e s/{VERSION}/v0.10.1/ build/mathquill.css
+cat src/intro.js src/utils.ts src/dom.ts src/unicode.ts src/browser.ts src/animate.ts src/services/aria.ts src/domFragment.ts src/tree.ts src/cursor.ts src/controller.ts src/publicapi.ts src/services/parser.util.ts src/services/saneKeyboardEvents.util.ts src/services/exportText.ts src/services/focusBlur.ts src/services/keystroke.ts src/services/latex.ts src/services/mouse.ts src/services/scrollHoriz.ts src/services/textarea.ts src/commands/math.ts src/commands/text.ts src/commands/math/advancedSymbols.ts src/commands/math/basicSymbols.ts src/commands/math/commands.ts src/commands/math/LatexCommandInput.ts src/outro.js build/.exists--used_by_Makefile | ./script/escape-non-ascii | ./script/tsc-emit-only > build/mathquill.js
+perl -pi -e s/mq-/mq-/g build/mathquill.js
+perl -pi -e s/{VERSION}/v0.10.1/ build/mathquill.js

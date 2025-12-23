@@ -1,0 +1,9 @@
+
+flask
+flask-sqlalchemy
+flask-login
+alembic
+Flask-Cors
+antlr4-python3-runtime
+pytest
+PyJWT

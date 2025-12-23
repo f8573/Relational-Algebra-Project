@@ -1,0 +1,5 @@
+/* Editor specific styles - placeholder for MathQuill visuals */
+.math-input{min-height:60px;padding:10px;border-radius:6px;border:1px solid #e6e6ef;background:#fff}
+.line-number{color:#999;padding:6px}
+/* Active line */
+.line-text:focus{outline:2px solid rgba(131,72,173,0.12)}

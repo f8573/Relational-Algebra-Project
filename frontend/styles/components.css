@@ -1,0 +1,5 @@
+.symbol-btn{border-radius:8px;padding:8px 10px;border:1px solid #eee;background:#fff}
+.symbol-btn:disabled{opacity:0.6}
+.toolbar{display:flex;gap:8px;margin-bottom:12px}
+#btn-new-line,#btn-run{padding:8px 10px;border-radius:6px;border:none;background:#2d8;cursor:pointer}
+#btn-run{background:linear-gradient(90deg,#4CAF50,#2E7D32);color:white}

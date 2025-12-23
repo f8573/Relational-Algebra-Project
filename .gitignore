@@ -2,3 +2,4 @@
 /server/.gitignore
 /server/radb.egg-info/
 /server/radb/__pycache__
+*node_modules*

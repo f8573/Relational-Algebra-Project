@@ -1,0 +1,6 @@
+/* Styles taken from original index.html, scoped for React components */
+.ra-header h1{font-size:1.6rem;margin-bottom:4px}
+.symbol-pad .symbol-btn{border-radius:8px;padding:8px 10px;border:1px solid #eee;background:#fff}
+.symbol-pad h4{margin:6px 0}
+button.active{background:#8348AD;color:#fff}
+textarea{font-family:monospace}
