@@ -36,6 +36,7 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
   const mqContainer = useRef(null)
   const textareaRef = useRef(null)
   const mqField = useRef(null)
+  const mqKeyHandler = useRef(null)
   const [dbs, setDbs] = useState([])
     const [selectedDb, setSelectedDb] = useState('DEFAULT')
 
@@ -125,6 +126,26 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
             autoCommands: 'pi sigma gamma delta rho',
           })
           setMqAvailable(true)
+          // Add handler: when user types '{' immediately after a '\\mathcal',
+          // insert '{}' and place the cursor inside so MathQuill parses \mathcal{X}
+          try{
+            const handler = (ev) => {
+              if (ev.key !== '{') return
+              try{
+                const latex = (mqField.current && typeof mqField.current.latex === 'function') ? mqField.current.latex() : ''
+                if (typeof latex === 'string' && latex.endsWith('\\mathcal')){
+                  ev.preventDefault()
+                  mqField.current.write('{}')
+                  if (typeof mqField.current.keystroke === 'function'){
+                    mqField.current.keystroke('Left')
+                    mqField.current.keystroke('Left')
+                  }
+                }
+              }catch(_){ /* ignore */ }
+            }
+            mqContainer.current.addEventListener('keydown', handler)
+            mqKeyHandler.current = handler
+          }catch(e){ /* ignore */ }
           // expose insertion function
           if (registerInsert) {
             registerInsert(insertLatex)
@@ -138,7 +159,12 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
       }
     }
     init()
-    return ()=>{ mounted = false }
+    return ()=>{
+      mounted = false
+      try{
+        if (mqKeyHandler.current && mqContainer.current) mqContainer.current.removeEventListener('keydown', mqKeyHandler.current)
+      }catch(e){ }
+    }
   }, [registerInsert])
 
   function getContent(){
