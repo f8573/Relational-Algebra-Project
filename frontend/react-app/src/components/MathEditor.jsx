@@ -67,13 +67,13 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
       try{
         await loadCss(MATHQUILL_CSS)
         await loadScript(MATHQUILL_JS)
-        // diagnostic: if loaded but global missing, try the non-minified build first
+        // diagnostic: if loaded but global missing, try the unminified build first
         if (!window.MathQuill) {
-          console.warn('MathQuill script loaded but window.MathQuill is undefined — trying non-minified build')
+          console.warn('MathQuill script loaded but window.MathQuill is undefined — trying unminified build')
           try{
             await loadScript('/vendor/mathquill/mathquill.js')
           }catch(e){
-            console.debug('non-minified mathquill.js failed to load from public/vendor', e)
+            console.debug('unminified mathquill.js failed to load from public/vendor', e)
           }
         }
         // if still missing, try fetch+inject of whichever file responded (avoids empty mathquill.min.js cases)
@@ -109,7 +109,7 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
             }
             // final fallback: do not attempt bundler-resolved import here (Vite will try to resolve 'mathquill')
             if (!window.MathQuill) {
-              console.warn('MathQuill not found; you can install it via `npm install mathquill` and load it from node_modules if desired')
+              console.warn('MathQuill not found; ensure MathQuill assets are available under `/public/vendor/mathquill/` (e.g. mathquill.js / mathquill.min.js), or adjust this loader if you prefer an npm-based setup')
             }
           }catch(fErr){
             console.warn('Fetch+inject fallback failed', fErr)
@@ -162,6 +162,35 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
       const v = ta.value
       ta.value = v.slice(0,start) + latex + v.slice(ta.selectionEnd || start)
       ta.selectionStart = ta.selectionEnd = start + latex.length
+      ta.focus()
+    }
+  }
+
+  // Insert a \mathcal{ } macro and place the cursor inside the braces when possible
+  function insertMathcal(){
+    const snippet = '\\mathcal{}'
+    if (mqField.current){
+      try{
+        mqField.current.write(snippet)
+        // attempt to move cursor left into the braces if keystroke API exists
+        if (typeof mqField.current.keystroke === 'function'){
+          // move left twice to land inside {}
+          mqField.current.keystroke('Left')
+          mqField.current.keystroke('Left')
+        }
+        mqField.current.focus()
+      }catch(e){
+        // fallback
+        mqField.current.write(snippet)
+        mqField.current.focus()
+      }
+    } else if (textareaRef.current){
+      const ta = textareaRef.current
+      const start = ta.selectionStart || ta.value.length
+      const v = ta.value
+      ta.value = v.slice(0,start) + snippet + v.slice(ta.selectionEnd || start)
+      const pos = start + snippet.length - 1
+      ta.selectionStart = ta.selectionEnd = pos
       ta.focus()
     }
   }
@@ -226,8 +255,9 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
 
               <div className="controls-wrapper" style={{marginTop:8}}>
                 <div className="controls">
-                  <button onClick={()=>setMode('pad')} className={mode==='pad'? 'active' : ''}>Symbol Pad</button>
-                  <button onClick={()=>setMode('latex')} className={mode==='latex'? 'active' : ''} style={{marginLeft:8}}>Raw LaTeX</button>
+                    <button onClick={()=>setMode('pad')} className={mode==='pad'? 'active' : ''}>Symbol Pad</button>
+                    <button onClick={()=>setMode('latex')} className={mode==='latex'? 'active' : ''} style={{marginLeft:8}}>Raw LaTeX</button>
+                    <button onClick={insertMathcal} title="Insert \\mathcal{}" style={{marginLeft:12}}>Insert \u2113</button>
                 </div>
               </div>
               {mode === 'pad' && (
