@@ -122,7 +122,9 @@ export default function App({ defaultShowAdmin = false }){
         if (mounted){ setToken(null); setUser(null) }
       }
     })()
-    return ()=>{ mounted = false }
+    const handler = () => { handleLogout() }
+    window.addEventListener('ra:unauthorized', handler)
+    return ()=>{ mounted = false; window.removeEventListener('ra:unauthorized', handler) }
   }, [])
 
   const handleLoginSuccess = (userData, authToken) => {

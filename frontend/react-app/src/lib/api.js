@@ -5,7 +5,13 @@ try {
   if (typeof window !== 'undefined') {
     const host = window.location.hostname
     if (host === 'localhost' || host === '127.0.0.1') {
-      API_BASE = 'http://127.0.0.1:5001/api'
+      const localBase =
+        typeof import.meta !== 'undefined' &&
+        import.meta.env &&
+        import.meta.env.VITE_API_BASE_URL
+          ? import.meta.env.VITE_API_BASE_URL
+          : API_BASE
+      API_BASE = localBase
     }
   }
 } catch (e) {
@@ -28,7 +34,9 @@ async function postJSON(path, data){
   // Defensive parsing: handle empty or non-JSON responses without throwing
   const text = await res.text()
   if (res.status === 401) {
-    // Unauthorized — surface explicitly so caller can clear session
+    // Unauthorized — dispatch global event so app can respond centrally,
+    // and surface explicitly so caller can clear session too.
+    try{ window.dispatchEvent(new CustomEvent('ra:unauthorized', { detail: { path: path } })) }catch(e){}
     return { ok: false, status: 401, unauthorized: true }
   }
   if (!text) {
@@ -48,6 +56,7 @@ async function getJSON(path){
   })
   const text = await res.text()
   if (res.status === 401) {
+    try{ window.dispatchEvent(new CustomEvent('ra:unauthorized', { detail: { path: path } })) }catch(e){}
     return { ok: false, status: 401, unauthorized: true }
   }
   if (!text) {
