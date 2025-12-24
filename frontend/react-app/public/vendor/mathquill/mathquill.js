@@ -7536,6 +7536,9 @@ var __assign = (this && this.__assign) || function () {
     LatexCmds.mathbf = function () {
         return new Style('\\mathbf', 'b', { class: 'mq-font' }, 'Bold Font');
     };
+    LatexCmds.mathcal = function () {
+        return new Style('\\mathcal', 'span', { class: 'mq-mathcal mq-font' }, 'Calligraphic Font');
+    };
     LatexCmds.mathsf = function () {
         return new Style('\\mathsf', 'span', { class: 'mq-sans-serif mq-font' }, 'Serif Font');
     };

@@ -7,6 +7,13 @@
  * was not distributed with this file, You can obtain
  * one at http://mozilla.org/MPL/2.0/.
  */
+
+/* Support for calligraphic/mathcal: use available math fonts where present */
+.mq-mathcal {
+  font-family: "STIXGeneral", "MathJax_Math", "Cambria Math", serif;
+  font-style: normal;
+}
+
 .mq-aria-alert {
   position: absolute;
   left: -1000px;
