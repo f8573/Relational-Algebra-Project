@@ -83,18 +83,46 @@ export default function App({ defaultShowAdmin = false }){
 
   // Check for existing auth on mount
   useEffect(() => {
-    const savedToken = localStorage.getItem('authToken')
-    const savedUser = localStorage.getItem('user')
-    if (savedToken && savedUser) {
-      try {
-        setToken(savedToken)
-        setUser(JSON.parse(savedUser))
-      } catch (e) {
-        console.error('Failed to restore session:', e)
-        localStorage.removeItem('authToken')
-        localStorage.removeItem('user')
+    let mounted = true
+    ;(async ()=>{
+      const savedToken = localStorage.getItem('authToken')
+      const savedUser = localStorage.getItem('user')
+      if (!savedToken || !savedUser) return
+      try{
+        // Optimistically set values so UI updates quickly
+        if (mounted) {
+          setToken(savedToken)
+          try{ setUser(JSON.parse(savedUser)) }catch(e){ setUser(null) }
+        }
+        // Validate token with backend; if invalid, clear saved session
+        const res = await api.getUser()
+        if (!mounted) return
+        if (res && res.unauthorized) {
+          // token not accepted by backend
+          localStorage.removeItem('authToken')
+          localStorage.removeItem('user')
+          setToken(null)
+          setUser(null)
+        } else if (res && res.ok && res.data && res.data.user) {
+          // refresh user info from server to ensure roles/flags are current
+          setUser(res.data.user)
+        } else {
+          // unexpected response: clear session to force login
+          // (avoid locking the UI behind a stale token)
+          if (!(res && res.ok)){
+            localStorage.removeItem('authToken')
+            localStorage.removeItem('user')
+            setToken(null)
+            setUser(null)
+          }
+        }
+      }catch(e){
+        console.error('Session validation failed', e)
+        try{ localStorage.removeItem('authToken'); localStorage.removeItem('user') }catch(_){}
+        if (mounted){ setToken(null); setUser(null) }
       }
-    }
+    })()
+    return ()=>{ mounted = false }
   }, [])
 
   const handleLoginSuccess = (userData, authToken) => {
@@ -152,7 +180,7 @@ export default function App({ defaultShowAdmin = false }){
 
   const run = async (script, dbId) => {
     // remember last-run script so Submit Query can use it if needed
-    try{ window.__lastRunQuery = script }catch(e){}
+    try{ sessionStorage.setItem('__lastRunQuery', script) }catch(e){}
     setOutput('Running...')
     try{
       const res = await api.runQuery(script, dbId)
