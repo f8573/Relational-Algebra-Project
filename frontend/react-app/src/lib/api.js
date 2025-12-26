@@ -1,22 +1,5 @@
-// During local development the Vite proxy may drop Authorization headers.
-// Use the backend address directly when running on localhost to avoid that.
-let API_BASE = '/api'
-try {
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname
-    if (host === 'localhost' || host === '127.0.0.1') {
-      const localBase =
-        typeof import.meta !== 'undefined' &&
-        import.meta.env &&
-        import.meta.env.VITE_API_BASE_URL
-          ? import.meta.env.VITE_API_BASE_URL
-          : API_BASE
-      API_BASE = localBase
-    }
-  }
-} catch (e) {
-  // ignore in non-browser environments
-}
+// Prefer explicit API base to avoid proxy header stripping; fallback to Vite proxy.
+const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) || '/api'
 
 function getAuthHeaders(){
   const token = localStorage.getItem('authToken')
@@ -28,8 +11,11 @@ function getAuthHeaders(){
 }
 
 async function postJSON(path, data){
+  const headers = getAuthHeaders()
+  const hasAuth = !!headers['Authorization']
+  try{ console.debug(`API POST ${path} (auth=${hasAuth})`) }catch(e){}
   const res = await fetch(`${API_BASE}${path}`, {
-    method:'POST', headers: getAuthHeaders(), body:JSON.stringify(data)
+    method:'POST', headers, body:JSON.stringify(data)
   })
   // Defensive parsing: handle empty or non-JSON responses without throwing
   const text = await res.text()
@@ -51,9 +37,10 @@ async function postJSON(path, data){
 }
 
 async function getJSON(path){
-  const res = await fetch(`${API_BASE}${path}`, {
-    method:'GET', headers: getAuthHeaders()
-  })
+  const headers = getAuthHeaders()
+  const hasAuth = !!headers['Authorization']
+  try{ console.debug(`API GET ${path} (auth=${hasAuth})`) }catch(e){}
+  const res = await fetch(`${API_BASE}${path}`, { method:'GET', headers })
   const text = await res.text()
   if (res.status === 401) {
     try{ window.dispatchEvent(new CustomEvent('ra:unauthorized', { detail: { path: path } })) }catch(e){}

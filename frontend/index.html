@@ -283,7 +283,7 @@
             const outputArea = document.getElementById('output-area');
             outputArea.textContent = "Running...";
             
-            fetch('http://localhost:5001/run', {
+            fetch('/run', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: query })

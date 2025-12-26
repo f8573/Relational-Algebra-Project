@@ -9,8 +9,9 @@
  */
 
 /* Support for calligraphic/mathcal: use available math fonts where present */
+/* Prefer TeX-like calligraphic shapes; fall back to bundled math fonts */
 .mq-mathcal {
-  font-family: "STIXGeneral", "MathJax_Math", "Cambria Math", serif;
+  font-family: "Latin Modern Math", "TeX Gyre Pagella Math", "TeX Gyre Termes Math", "STIX Two Math", "STIXGeneral", "MathJax_Math", "Cambria Math", serif;
   font-style: normal;
 }
 

@@ -67,54 +67,17 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
     async function init(){
       try{
         await loadCss(MATHQUILL_CSS)
+        // Load MathQuill from local vendor copy - prefer the full build for easier debugging
         await loadScript(MATHQUILL_JS)
-        // diagnostic: if loaded but global missing, try the unminified build first
+        // Apply local patch to render \mathcal letters as Unicode script capitals
+        await loadScript('/vendor/mathquill/patches/mathcal-script.js')
+        
+        // Give the script a moment to execute its IIFE
+        await new Promise(resolve => setTimeout(resolve, 50))
+        
         if (!window.MathQuill) {
-          console.warn('MathQuill script loaded but window.MathQuill is undefined — trying unminified build')
-          try{
-            await loadScript('/vendor/mathquill/mathquill.js')
-          }catch(e){
-            console.debug('unminified mathquill.js failed to load from public/vendor', e)
-          }
-        }
-        // if still missing, try fetch+inject of whichever file responded (avoids empty mathquill.min.js cases)
-        if (!window.MathQuill) {
-          console.warn('MathQuill script loaded but window.MathQuill is undefined — attempting fetch+inject fallback')
-          try{
-            // prefer fetching the full (non-minified) build if available, otherwise fall back to the minified file
-            let txt
-            try{
-              txt = await fetch(MATHQUILL_JS).then(r=>{ if(!r.ok) throw new Error('fetch failed '+r.status); return r.text() })
-            }catch(_){
-              txt = await fetch(MATHQUILL_JS_MIN).then(r=>{ if(!r.ok) throw new Error('fetch failed '+r.status); return r.text() })
-            }
-            const inline = document.createElement('script')
-            inline.type = 'text/javascript'
-            inline.text = txt
-            document.head.appendChild(inline)
-            console.debug('MathQuill script injected via fetch; window.MathQuill=', !!window.MathQuill)
-            // heuristic: scan globals for an object exposing getInterface()
-            if (!window.MathQuill) {
-              try{
-                for (const k in window) {
-                  try{
-                    const v = window[k]
-                    if (v && typeof v.getInterface === 'function'){
-                      window.MathQuill = v
-                      console.debug('MathQuill discovered on window as', k)
-                      break
-                    }
-                  }catch(inner){}
-                }
-              }catch(scanErr){ console.warn('global scan failed', scanErr) }
-            }
-            // final fallback: do not attempt bundler-resolved import here (Vite will try to resolve 'mathquill')
-            if (!window.MathQuill) {
-              console.warn('MathQuill not found; ensure MathQuill assets are available under `/public/vendor/mathquill/` (e.g. mathquill.js / mathquill.min.js), or adjust this loader if you prefer an npm-based setup')
-            }
-          }catch(fErr){
-            console.warn('Fetch+inject fallback failed', fErr)
-          }
+          console.error('MathQuill failed to initialize. Check that /public/vendor/mathquill/mathquill.js is valid and sets window.MathQuill')
+          throw new Error('MathQuill not available')
         }
         if (!mounted) return
         if (window.MathQuill && mqContainer.current){
@@ -123,7 +86,7 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
           mqField.current = MQ.MathField(mqContainer.current, {
             spaceBehavesLikeTab: false,
             supSubsRequireOperand: true,
-            autoCommands: 'pi sigma gamma delta rho',
+            autoCommands: 'pi sigma delta rho mathcal',
           })
           setMqAvailable(true)
           // Add handler: when user types '{' immediately after a '\\mathcal',
@@ -283,7 +246,6 @@ export default function MathEditor({ onRun, registerInsert, registerSetContent, 
                 <div className="controls">
                     <button onClick={()=>setMode('pad')} className={mode==='pad'? 'active' : ''}>Symbol Pad</button>
                     <button onClick={()=>setMode('latex')} className={mode==='latex'? 'active' : ''} style={{marginLeft:8}}>Raw LaTeX</button>
-                    <button onClick={insertMathcal} title="Insert \\mathcal{}" style={{marginLeft:12}}>Insert \u2113</button>
                 </div>
               </div>
               {mode === 'pad' && (

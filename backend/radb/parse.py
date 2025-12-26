@@ -254,7 +254,10 @@ class ASTBuilder(RAParserVisitor):
         return radb.ast.CommandSource(ctx.STRING().getText())
 
     def visitSqlexecCommand(self, ctx):
-        # Changed from SQLEXEC_TEXT (or ARG_L) to SQLEXEC_CONTENT
+        # Use SQLEXEC_CONTENT, a dedicated token carrying the full SQL command
+        # text for the sqlexec statement, instead of the older SQLEXEC_TEXT /
+        # ARG_L tokens. This keeps the visitor aligned with the updated grammar
+        # and avoids reconstructing the command string from multiple tokens.
         s = ctx.SQLEXEC_CONTENT().getText().strip()
         return radb.ast.CommandSqlexec(s)
 

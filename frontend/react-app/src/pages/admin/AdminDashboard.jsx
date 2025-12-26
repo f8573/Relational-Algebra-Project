@@ -72,7 +72,7 @@ export default function AdminDashboard({ onClose, fullPage = false }){
 
   const loadAssignments = async (courseId)=>{
     const res = await admin.getCourseAssignments(courseId)
-    if (res.ok && res.data) setAssignments(res.data.assignments || res.data.assignments)
+    if (res.ok && res.data) setAssignments(res.data.assignments || [])
   }
 
   const refreshDbList = async ()=>{

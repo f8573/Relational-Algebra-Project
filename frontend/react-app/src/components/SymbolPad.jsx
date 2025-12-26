@@ -5,8 +5,8 @@ const SYMBOLS = [
   { latex: '\\sigma_{}()', display: ['σ','☐'], title: 'select' },
   { latex: '\\rho_{}()', display: ['ρ','☐'], title: 'rename' },
   { latex: '\\text{}', display: ['Text'], title: 'text' },
-  { latex: '\\gamma_{}()', display: ['γ','☐'], title: 'aggregate' },
-  { latex: '{}_{} \\gamma_{}()', display: ['☐','γ','☐'], title: 'group' },
+  { latex: '\\mathcal{G}_{}()', display: ['𝒢','☐'], title: 'aggregate' },
+  { latex: '{}_{} \\mathcal{G}_{}()', display: ['☐','𝒢','☐'], title: 'group' },
   { latex: '\\leftarrow', display: ['←'], title: 'assign' },
   { latex: '-', display: ['−'], title: 'minus' },
   { latex: '\\cup', display: ['∪'], title: 'union' },
@@ -14,7 +14,10 @@ const SYMBOLS = [
   { latex: '\\times', display: ['×'], title: 'product' },
   { latex: '⋈', display: ['⋈'], title: 'join' },
   { latex: '⋈_{}', display: ['⋈','☐'], title: 'theta-join' },
-  { latex: '⟕', display: ['⟕'], title: 'left-join' }
+  { latex: '⟕', display: ['⟕'], title: 'left-join' },
+  { latex: '\\lor', display: ['∨'], title: 'OR' },
+  { latex: '\\land', display: ['∧'], title: 'AND' },
+  { latex: '\\neg', display: ['¬'], title: 'NOT' }
 ]
 
 export default function SymbolPad({ onInsert }){

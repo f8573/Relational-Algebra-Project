@@ -28,11 +28,27 @@ def verify_token(f):
                 return jsonify({'status': 'error', 'message': 'Invalid token format'}), 401
         
         if not token:
-            current_app.logger.info(
-                "Missing authorization token for request from %s to %s",
-                request.remote_addr,
-                request.path
-            )
+            try:
+                origin = request.headers.get('Origin')
+                if origin and 'localhost:5173' in origin:
+                    current_app.logger.warning(
+                        "Missing Authorization header on request from %s (origin=%s) to %s. Likely proxy did not forward header.",
+                        request.remote_addr,
+                        origin,
+                        request.path
+                    )
+                current_app.logger.info(
+                    "Missing authorization token for request from %s to %s headers=%s",
+                    request.remote_addr,
+                    request.path,
+                    dict(request.headers)
+                )
+            except Exception:
+                current_app.logger.info(
+                    "Missing authorization token for request from %s to %s",
+                    request.remote_addr,
+                    request.path
+                )
             return jsonify({'status': 'error', 'message': 'Missing authorization token'}), 401
         
         try:

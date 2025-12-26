@@ -26,7 +26,7 @@ export default defineConfig({
                 proxyReq.setHeader('Cookie', req.headers.cookie)
               }
             } catch (e) {
-              // swallow; logging happens in server console if needed
+              console.error('Error while configuring proxy headers for request:', req?.url, e)
             }
           })
         }

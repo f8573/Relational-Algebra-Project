@@ -35,41 +35,44 @@ function toCSV(cols, rows){
 }
 
 function detectAndBuildTable(obj){
-  function mergeContinuations(rows){
-    const toks = rows.map(r => Array.isArray(r) ? String(r[0] ?? '') : String(r ?? ''))
-    const out = []
-    for (const t of toks){
-      if (!t) continue
-      const firstChar = t[0]
-      if (out.length > 0 && firstChar && firstChar === firstChar.toLowerCase() && /[a-z]/.test(firstChar)){
-        out[out.length-1] = out[out.length-1] + t
-      } else {
-        out.push(t)
-      }
-    }
-    return out.map(s=> [s])
-  }
-
-  function mergeRowFragments(rows){
-    // rows: array of arrays -> [[str], [str], ...]
-    const toks = rows.map(r => Array.isArray(r) ? String(r[0] ?? '') : String(r ?? ''))
+  // Merge an array of token strings by appending continuation tokens to previous token.
+  // continueOnSingle: if true, single-character tokens are considered continuations.
+  function mergeTokens(toks, { continueOnSingle = false } = {}){
     const out = []
     for (let i = 0; i < toks.length; i++){
-      let cur = toks[i]
-      if (!cur) continue
-      // merge subsequent fragments that look like continuations: start with lowercase or are single-letter
+      let t = toks[i]
+      if (!t) continue
+      const firstChar = t[0]
+      // If token itself is a continuation (unexpected), append to previous
+      if (out.length > 0 && firstChar && firstChar === firstChar.toLowerCase() && /[a-z]/.test(firstChar)){
+        out[out.length-1] = out[out.length-1] + t
+        continue
+      }
+      // Otherwise, try to absorb following continuation fragments
+      let cur = t
       while (i+1 < toks.length){
         const nxt = toks[i+1]
         if (!nxt) { i++; continue }
         const nc = nxt[0]
-        if ((nc && nc === nc.toLowerCase() && /[a-z]/.test(nc)) || nxt.length === 1){
+        const isLower = nc && nc === nc.toLowerCase() && /[a-z]/.test(nc)
+        if (isLower || (continueOnSingle && nxt.length === 1)){
           cur = cur + nxt
           i++
         } else break
       }
-      out.push([cur])
+      out.push(cur)
     }
     return out
+  }
+
+  function mergeContinuations(rows){
+    const toks = rows.map(r => Array.isArray(r) ? String(r[0] ?? '') : String(r ?? ''))
+    return mergeTokens(toks, { continueOnSingle: false }).map(s => [s])
+  }
+
+  function mergeRowFragments(rows){
+    const toks = rows.map(r => Array.isArray(r) ? String(r[0] ?? '') : String(r ?? ''))
+    return mergeTokens(toks, { continueOnSingle: true }).map(s => [s])
   }
 
   function finalize(obj){

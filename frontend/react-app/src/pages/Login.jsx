@@ -30,6 +30,8 @@ export default function Login({ onLoginSuccess }) {
       if (data.token && data.user) {
         localStorage.setItem('authToken', data.token)
         localStorage.setItem('user', JSON.stringify(data.user))
+        // Debug: log token fingerprint (not full token) to help trace auth issues
+        try { console.debug('Login success, token fingerprint:', (data.token || '').substring(0,8) + '...') } catch (e) {}
         onLoginSuccess(data.user, data.token)
       }
     } catch (err) {
