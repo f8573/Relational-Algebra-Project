@@ -4,7 +4,7 @@ const SYMBOLS = [
   { latex: '\\pi_{}()', display: ['π','☐'], title: 'project' },
   { latex: '\\sigma_{}()', display: ['σ','☐'], title: 'select' },
   { latex: '\\rho_{}()', display: ['ρ','☐'], title: 'rename' },
-  { latex: '\\text{}', display: ['Text'], title: 'text' },
+  { latex: '\\text{Text}', display: ['Text'], title: 'text' },
   { latex: '\\mathcal{G}_{}()', display: ['𝒢','☐'], title: 'aggregate' },
   { latex: '{}_{} \\mathcal{G}_{}()', display: ['☐','𝒢','☐'], title: 'group' },
   { latex: '\\leftarrow', display: ['←'], title: 'assign' },

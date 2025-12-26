@@ -50,6 +50,10 @@ class Submission(db.Model):
     )
 
     student_query = db.Column(db.Text)
+    # For non-RA question types, store structured answer payload
+    # e.g., { choice: 'A' } for mcq, { choices: ['A','C'] } for msq,
+    # { text: '...' } for free, { normal_form: 'BCNF' } for norm
+    answer_payload = db.Column(db.JSON, default={})
     score_earned = db.Column(db.Float, default=0.0)
     grading_feedback = db.Column(db.JSON, default={})
     last_updated = db.Column(

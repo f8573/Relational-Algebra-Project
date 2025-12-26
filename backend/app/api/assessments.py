@@ -56,6 +56,7 @@ def submit_answer():
     assessment_id = payload.get('assessment_id')
     question_id = payload.get('question_id')
     query = payload.get('query', '')
+    answer_payload = payload.get('answer_payload')
 
     # Find or create Attempt
     attempt = (
@@ -67,10 +68,14 @@ def submit_answer():
         db.session.add(attempt)
         db.session.commit()
 
+    # Determine question type to store appropriate fields
+    q = Question.query.get(question_id)
+    qtype = (getattr(q, 'question_type', 'ra') or 'ra').lower() if q else 'ra'
     submission = Submission(
         attempt_id=attempt.id,
         question_id=question_id,
-        student_query=query,
+        student_query=query if qtype == 'ra' else None,
+        answer_payload=answer_payload if qtype != 'ra' else None,
     )
     db.session.add(submission)
     db.session.commit()
@@ -185,13 +190,27 @@ def list_assessment_questions(assessment_id):
                 return q.get(name)
             return getattr(q, name, None)
 
+        import json
+
+        def _jsonify(val):
+            try:
+                if isinstance(val, (dict, list)):
+                    return val
+                if isinstance(val, str) and val.strip():
+                    return json.loads(val)
+            except Exception:
+                pass
+            return None
+
         for q in rows:
             qobj = {
                 'id': _get(q, 'id'),
                 'prompt': _get(q, 'prompt'),
                 'points': _get(q, 'points'),
                 'db_id': _get(q, 'db_id'),
-                'solution_query': _get(q, 'solution_query')
+                'solution_query': _get(q, 'solution_query'),
+                'question_type': (_get(q, 'question_type') or 'ra'),
+                'options': _jsonify(_get(q, 'options_json'))
             }
             total_points += float(qobj['points'] or 0)
             sub = None
@@ -206,10 +225,12 @@ def list_assessment_questions(assessment_id):
             if sub:
                 qobj['score'] = float(sub.score_earned or 0)
                 qobj['student_query'] = sub.student_query
+                qobj['answer_payload'] = sub.answer_payload
                 user_total += float(sub.score_earned or 0)
             else:
                 qobj['score'] = None
                 qobj['student_query'] = None
+                qobj['answer_payload'] = None
             qs.append(qobj)
 
         percent = (user_total / total_points * 100.0) if total_points > 0 else None

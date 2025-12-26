@@ -72,6 +72,28 @@ def create_app(config_class=Config):
                         app.logger.info('Added questions.db_id column')
                     except Exception:
                         app.logger.exception('Failed to add questions.db_id column')
+                # Backfill new columns for multi-type questions
+                if 'question_type' not in cols:
+                    app.logger.info('Adding questions.question_type column')
+                    try:
+                        db.session.execute(text("ALTER TABLE questions ADD COLUMN question_type VARCHAR(10) DEFAULT 'ra' NOT NULL"))
+                        db.session.commit()
+                    except Exception:
+                        app.logger.exception('Failed to add questions.question_type')
+                if 'options_json' not in cols:
+                    app.logger.info('Adding questions.options_json column')
+                    try:
+                        db.session.execute(text('ALTER TABLE questions ADD COLUMN options_json TEXT'))
+                        db.session.commit()
+                    except Exception:
+                        app.logger.exception('Failed to add questions.options_json')
+                if 'answer_key_json' not in cols:
+                    app.logger.info('Adding questions.answer_key_json column')
+                    try:
+                        db.session.execute(text('ALTER TABLE questions ADD COLUMN answer_key_json TEXT'))
+                        db.session.commit()
+                    except Exception:
+                        app.logger.exception('Failed to add questions.answer_key_json')
 
             # Ensure databases table exists (create missing tables as needed)
             if not inspector.has_table('databases'):
@@ -81,6 +103,16 @@ def create_app(config_class=Config):
                     app.logger.info('Created missing tables')
                 except Exception:
                     app.logger.exception('Failed to create missing tables')
+            # Ensure submissions table has answer_payload column
+            if inspector.has_table('submissions'):
+                scols = [c['name'] for c in inspector.get_columns('submissions')]
+                if 'answer_payload' not in scols:
+                    app.logger.info('Adding submissions.answer_payload column')
+                    try:
+                        db.session.execute(text('ALTER TABLE submissions ADD COLUMN answer_payload TEXT'))
+                        db.session.commit()
+                    except Exception:
+                        app.logger.exception('Failed to add submissions.answer_payload')
     except Exception:
         # Don't fail app startup if DB init fails; log and continue so errors
         # surface in request handling instead.

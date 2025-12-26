@@ -90,34 +90,58 @@ def admin_course_assignments(course_id):
     out = []
     for a in assessments:
         qs = []
-        # Try to SELECT including db_id; if the column doesn't exist (older DB),
-        # fall back to selecting only id/prompt/points and set db_id to None.
+        # Try to SELECT including new columns; fall back gracefully for older DBs
         try:
-            stmt = text("SELECT id, prompt, points, db_id, solution_query FROM questions WHERE assessment_id = :aid ORDER BY order_index")
+            stmt = text("SELECT id, prompt, points, db_id, solution_query, question_type, options_json, answer_key_json FROM questions WHERE assessment_id = :aid ORDER BY order_index")
             res = db.session.execute(stmt, {'aid': a.id})
             rows = res.fetchall()
             for r in rows:
                 try:
                     m = r._mapping
-                    dbval = m.get('db_id') if 'db_id' in m.keys() else None
-                    sol = m.get('solution_query') if 'solution_query' in m.keys() else None
-                    qs.append({'id': m.get('id'), 'prompt': m.get('prompt'), 'points': m.get('points'), 'db_id': dbval, 'solution_query': sol})
+                    import json
+                    def _parse_json(val):
+                        if isinstance(val, (dict, list)):
+                            return val
+                        if isinstance(val, str) and val.strip():
+                            try:
+                                return json.loads(val)
+                            except:
+                                pass
+                        return None
+                    qs.append({
+                        'id': m.get('id'),
+                        'prompt': m.get('prompt'),
+                        'points': m.get('points'),
+                        'db_id': m.get('db_id'),
+                        'solution_query': m.get('solution_query'),
+                        'question_type': m.get('question_type', 'ra'),
+                        'options_json': _parse_json(m.get('options_json')),
+                        'answer_key_json': _parse_json(m.get('answer_key_json'))
+                    })
                 except Exception:
-                    # Row may be tuple-like
                     vals = list(r)
-                    qs.append({'id': vals[0], 'prompt': vals[1], 'points': vals[2], 'db_id': vals[3] if len(vals) > 3 else None, 'solution_query': vals[4] if len(vals) > 4 else None})
+                    qs.append({
+                        'id': vals[0],
+                        'prompt': vals[1],
+                        'points': vals[2],
+                        'db_id': vals[3] if len(vals) > 3 else None,
+                        'solution_query': vals[4] if len(vals) > 4 else None,
+                        'question_type': vals[5] if len(vals) > 5 else 'ra',
+                        'options_json': vals[6] if len(vals) > 6 else None,
+                        'answer_key_json': vals[7] if len(vals) > 7 else None
+                    })
         except Exception:
             try:
-                stmt = text("SELECT id, prompt, points, solution_query FROM questions WHERE assessment_id = :aid ORDER BY order_index")
+                stmt = text("SELECT id, prompt, points, db_id, solution_query FROM questions WHERE assessment_id = :aid ORDER BY order_index")
                 res = db.session.execute(stmt, {'aid': a.id})
                 rows = res.fetchall()
                 for r in rows:
                     try:
                         m = r._mapping
-                        qs.append({'id': m.get('id'), 'prompt': m.get('prompt'), 'points': m.get('points'), 'db_id': None, 'solution_query': m.get('solution_query')})
+                        qs.append({'id': m.get('id'), 'prompt': m.get('prompt'), 'points': m.get('points'), 'db_id': m.get('db_id'), 'solution_query': m.get('solution_query'), 'question_type': 'ra', 'options_json': None, 'answer_key_json': None})
                     except Exception:
                         vals = list(r)
-                        qs.append({'id': vals[0], 'prompt': vals[1], 'points': vals[2], 'db_id': None, 'solution_query': vals[3] if len(vals) > 3 else None})
+                        qs.append({'id': vals[0], 'prompt': vals[1], 'points': vals[2], 'db_id': vals[3] if len(vals) > 3 else None, 'solution_query': vals[4] if len(vals) > 4 else None, 'question_type': 'ra', 'options_json': None, 'answer_key_json': None})
             except Exception:
                 current_app.logger.exception('Failed to load questions for assessment %s', a.id)
         out.append({'id': a.id, 'title': a.title, 'questions': qs})
@@ -290,7 +314,17 @@ def admin_create_assignment(course_id):
     # Optionally create questions if provided
     questions = data.get('questions') or []
     for q in questions:
-        QuestionObj = Question(prompt=q.get('prompt', ''), points=q.get('points', 0), assessment_id=assignment.id, db_id=q.get('db_id'), solution_query=q.get('solution_query'))
+        qtype = q.get('question_type', 'ra')
+        QuestionObj = Question(
+            prompt=q.get('prompt', ''),
+            points=q.get('points', 0),
+            assessment_id=assignment.id,
+            db_id=q.get('db_id'),
+            solution_query=q.get('solution_query'),
+            question_type=qtype,
+            options_json=q.get('options_json'),
+            answer_key_json=q.get('answer_key_json')
+        )
         db.session.add(QuestionObj)
     db.session.commit()
     return jsonify({'status': 'success', 'assignment': {'id': assignment.id, 'title': assignment.title}}), 201
@@ -436,7 +470,17 @@ def admin_update_assignment(assignment_id):
         db.session.flush()
         # create and append new Question objects with proper ordering
         for idx, q in enumerate(questions):
-            QuestionObj = Question(prompt=q.get('prompt', ''), points=q.get('points', 0), order_index=idx, db_id=q.get('db_id'), solution_query=q.get('solution_query'))
+            qtype = q.get('question_type', 'ra')
+            QuestionObj = Question(
+                prompt=q.get('prompt', ''),
+                points=q.get('points', 0),
+                order_index=idx,
+                db_id=q.get('db_id'),
+                solution_query=q.get('solution_query'),
+                question_type=qtype,
+                options_json=q.get('options_json'),
+                answer_key_json=q.get('answer_key_json')
+            )
             assignment.questions.append(QuestionObj)
     db.session.add(assignment)
     db.session.commit()

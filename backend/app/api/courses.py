@@ -1,5 +1,5 @@
 """Course-related routes."""
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from app.models import Course, CourseMembership, User
 from app.extensions import db
 from .auth_decorators import verify_token
@@ -95,7 +95,7 @@ def get_course(course_id):
             'status': 'error',
             'message': 'Course not found'
         }), 404
-    
+
     return jsonify({
         'status': 'success',
         'course': {
@@ -105,47 +105,6 @@ def get_course(course_id):
             'role': membership.role,
             'created_at': course.created_at.isoformat() if course.created_at else None
         }
-    }), 200
-
-
-@bp.route('/<int:course_id>/members', methods=['GET'])
-@verify_token
-def get_course_members(course_id):
-    """Get all members of a course (instructors only)."""
-    user = request.user
-    
-    # Check enrollment and role
-    membership = CourseMembership.query.filter_by(
-        course_id=course_id,
-        user_id=user.id
-    ).first()
-    
-    if not membership:
-        return jsonify({
-            'status': 'error',
-            'message': 'Not enrolled in this course'
-        }), 403
-    
-    if membership.role != 'instructor' and not user.is_platform_admin:
-        return jsonify({
-            'status': 'error',
-            'message': 'Only instructors can view course members'
-        }), 403
-    
-    members = CourseMembership.query.filter_by(course_id=course_id).all()
-    member_data = []
-    
-    for m in members:
-        member_data.append({
-            'id': m.user.id,
-            'email': m.user.email,
-            'name': m.user.name,
-            'role': m.role
-        })
-    
-    return jsonify({
-        'status': 'success',
-        'members': member_data
     }), 200
 
 
@@ -203,18 +162,24 @@ def public_course_assignments(course_id):
             rows = db.session.execute(sql, {'uid': user.id, 'aid': a.id}).fetchall()
             # map question_id -> score
             latest_by_q = { int(r[0]): float(r[1] or 0.0) for r in rows }
-            if latest_by_q:
-                # load points for these questions in one query
-                q_rows = Question.query.filter(Question.id.in_(list(latest_by_q.keys()))).all()
+            
+            # Load ALL questions for this assessment to properly weight the grade
+            q_rows = Question.query.filter(Question.assessment_id == a.id).all()
+            if q_rows:
                 pct_sum = 0.0
                 pct_count = 0
                 for q in q_rows:
                     qid = int(getattr(q, 'id', 0) or 0)
                     qpoints = getattr(q, 'points', None)
-                    if qid in latest_by_q and qpoints and float(qpoints) > 0:
-                        pct = (float(latest_by_q[qid]) / float(qpoints)) * 100.0
-                        pct_sum += pct
-                        pct_count += 1
+                    if qpoints and float(qpoints) > 0:
+                        # Only include this question if the user has at least
+                        # one submission for it — do not count unanswered
+                        # questions as zero in the average.
+                        if qid in latest_by_q:
+                            score = float(latest_by_q.get(qid, 0.0))
+                            pct = (score / float(qpoints)) * 100.0
+                            pct_sum += pct
+                            pct_count += 1
                 if pct_count > 0:
                     percent = pct_sum / float(pct_count)
             else:

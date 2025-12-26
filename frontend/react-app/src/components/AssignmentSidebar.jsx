@@ -38,6 +38,19 @@ export default function AssignmentSidebar({ course, selectedAssignment, onSelect
       {showGrades && (
         <div style={{marginBottom:8,padding:8,background:'#fff',border:'1px solid #eee',borderRadius:6}}>
           <strong style={{display:'block',marginBottom:6}}>Grades</strong>
+          {/* Course average across graded assignments only (omit ungraded assignments) */}
+          {assignments && assignments.length > 0 && (() => {
+            const graded = assignments.map(a => {
+              if (a.percent != null) return a.percent
+              if (a.user_points != null && a.total_points) return (a.user_points / a.total_points) * 100.0
+              return null
+            }).filter(x => x != null)
+            if (graded.length > 0) {
+              const avg = graded.reduce((s, v) => s + v, 0) / graded.length
+              return (<div style={{marginBottom:8,fontSize:13}}>Course Average: <strong>{Math.round(avg)}%</strong></div>)
+            }
+            return null
+          })()}
           {loading && <div>Loading...</div>}
           {!loading && assignments.length===0 && <div style={{color:'#666'}}>No assignments</div>}
           {!loading && assignments.map(a => (

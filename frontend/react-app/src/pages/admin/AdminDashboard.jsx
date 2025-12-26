@@ -24,6 +24,7 @@ export default function AdminDashboard({ onClose, fullPage = false }){
   const [dbPreviewOpen, setDbPreviewOpen] = useState(false)
   const [dbPreviewName, setDbPreviewName] = useState('')
   const [modalError, setModalError] = useState('')
+  const [fdTextMap, setFdTextMap] = useState({})
 
   const computeModalValidation = () => {
     if (modalMode === 'editQuestion'){
@@ -33,8 +34,36 @@ export default function AdminDashboard({ onClose, fullPage = false }){
     }
     if (modalMode === 'createAssignment' || modalMode === 'editAssignment'){
       const qs = (modalPayload.questions||[])
-      const missing = qs.some(q => !(q.solution_query && String(q.solution_query).trim()))
-      if (missing) return { disabled: true, reason: 'All questions must have a solution query before saving.' }
+      const missing = qs.some(q => {
+        const qtype = (q.question_type || 'ra').toLowerCase()
+        if (qtype === 'ra') {
+          return !(q.solution_query && String(q.solution_query).trim())
+        }
+        if (qtype === 'mcq') {
+          return !q.answer_key_json || !String(q.answer_key_json.correct || '').trim()
+        }
+        if (qtype === 'msq') {
+          const correct = q.answer_key_json?.correct
+          return !q.answer_key_json || !(Array.isArray(correct) && correct.length > 0) && !String(correct || '').trim()
+        }
+        if (qtype === 'norm') {
+          const hasForms = q.answer_key_json && Array.isArray(q.answer_key_json.correct_forms) && q.answer_key_json.correct_forms.length > 0
+          const hasText = q.answer_key_json && ((Array.isArray(q.answer_key_json.acceptable) && q.answer_key_json.acceptable.length > 0) || (q.answer_key_json.regex && String(q.answer_key_json.regex).trim()))
+          const hasDecompSet = q.answer_key_json && Array.isArray(q.answer_key_json.decomposition_signatures) && q.answer_key_json.decomposition_signatures.length > 0
+          const targetNF = (q.answer_key_json && (q.answer_key_json.target_nf||'').toString().toUpperCase()) || ''
+          const needsFDs = targetNF === '2NF' || targetNF === '3NF' || targetNF === 'BCNF' || targetNF === '4NF' || targetNF === '5NF'
+          const fdCount = ((q.options_json && q.options_json.schema && Array.isArray(q.options_json.schema.fds)) ? q.options_json.schema.fds.length : 0)
+          if (needsFDs && fdCount === 0) return true
+          // At least one grading path must be defined
+          return !(hasForms || hasText || hasDecompSet || (needsFDs && fdCount>0))
+        }
+        if (qtype === 'sql') {
+          return !q.options_json?.database_file_id || !String(q.answer_key_json?.expected_result_sql || '').trim()
+        }
+        // free
+        return !q.answer_key_json || ((!(Array.isArray(q.answer_key_json.acceptable) && q.answer_key_json.acceptable.length > 0)) && !(q.answer_key_json.regex && String(q.answer_key_json.regex).trim()))
+      })
+      if (missing) return { disabled: true, reason: 'Each question must have a valid answer: solution (RA), correct choice(s) (MCQ/MSQ), normal forms or text/regex (Normalization), text/regex (Free), or database + expected result (SQL).' }
       return { disabled: false, reason: '' }
     }
     return { disabled: false, reason: '' }
@@ -47,6 +76,12 @@ export default function AdminDashboard({ onClose, fullPage = false }){
     }
     load()
   },[])
+
+  useEffect(()=>{
+    if (modalOpen && (modalMode === 'createAssignment' || modalMode === 'editAssignment')) {
+      refreshDbList()
+    }
+  }, [modalOpen, modalMode])
 
   const refreshCourses = async ()=>{
     const res = await admin.listCourses()
@@ -117,9 +152,26 @@ export default function AdminDashboard({ onClose, fullPage = false }){
       const res = await admin.getCourseAssignments(selectedCourse.id)
       if (res.ok && res.data){
         const found = (res.data.assignments||[]).find(a=>String(a.id)===String(assignmentId))
-        if (found){
-              setModalPayload(p=>({...p, questions: (found.questions||[]).map(q=>({ prompt: q.prompt, points: q.points, db_id: q.db_id || null, solution_query: q.solution_query || '', id: q.id })) }))
-        }
+          if (found){
+            const questions = (found.questions||[]).map(q=>({
+              prompt: q.prompt,
+              points: q.points,
+              db_id: q.db_id || null,
+              solution_query: q.solution_query || '',
+              id: q.id,
+              question_type: q.question_type || 'ra',
+              options_json: q.options_json || {},
+              answer_key_json: q.answer_key_json || {}
+            }))
+            setModalPayload(p=>({...p, questions }))
+            // Initialize FD text map
+            const newFdMap = {}
+            questions.forEach((q, idx) => {
+              const fds = q.options_json?.schema?.fds || []
+              newFdMap[idx] = fds.map(fd => `${(fd.lhs||[]).join(',')} -> ${(fd.rhs||[]).join(',')}`).join('\n')
+            })
+            setFdTextMap(newFdMap)
+          }
       }
     }catch(e){ console.error('Failed to load assignment questions', e) }
   }
@@ -203,7 +255,7 @@ export default function AdminDashboard({ onClose, fullPage = false }){
             </div>
           )}
           <div style={{marginBottom:8}}>
-            {selectedCourse && <button onClick={()=>{ setModalMode('createAssignment'); setModalPayload({ title: '', questions: [] }); setModalOpen(true); refreshDbList() }} style={{width:'100%'}}>New Assignment</button>}
+            {selectedCourse && <button onClick={()=>{ setModalMode('createAssignment'); setModalPayload({ title: '', questions: [] }); setFdTextMap({}); setModalOpen(true); refreshDbList() }} style={{width:'100%'}}>New Assignment</button>}
           </div>
           <ul>
             {assignments.map(a=> (
@@ -438,38 +490,177 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                 <div style={{marginTop:8}}>
                   <label>Questions</label>
                   <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                    {(modalPayload.questions||[]).map((q, idx)=>(
+                    {(modalPayload.questions||[]).map((q, idx)=>{
+                      const qtype = (q.question_type || 'ra').toLowerCase()
+                      return (
                       <div key={idx} style={{padding:8,border:'1px solid #eee',borderRadius:6,display:'flex',flexDirection:'column',gap:6}}>
                         <div style={{display:'flex',gap:8}}>
                           <input placeholder="Prompt" style={{flex:1}} value={q.prompt||''} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], prompt: e.target.value}; return {...p, questions: qs} })} />
                           <input placeholder="Points" type="number" style={{width:88}} value={q.points||0} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], points: parseInt(e.target.value||0)}; return {...p, questions: qs} })} />
                         </div>
                         <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                          <label style={{margin:0}}>Database</label>
-                          <select value={q.db_id||''} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], db_id: e.target.value||null}; return {...p, questions: qs} })}>
-                            <option value="">(none)</option>
-                            {dbList.map(d=> (<option key={d.id} value={d.id}>{d.name}</option>))}
+                          <label style={{margin:0}}>Type</label>
+                          <select value={qtype} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); const newType = e.target.value; const defaultForms = ['1NF','2NF','3NF','BCNF','4NF','5NF'];
+                            qs[idx] = {
+                              ...qs[idx],
+                              question_type: newType,
+                              // initialize defaults when switching types
+                              options_json: newType==='norm' ? ({ forms: (qs[idx]?.options_json?.forms || defaultForms) }) : (newType==='mcq' || newType==='msq' ? ({ choices: (qs[idx]?.options_json?.choices || []) }) : qs[idx]?.options_json),
+                              answer_key_json: newType==='norm' ? (qs[idx]?.answer_key_json || { correct_forms: [] }) : qs[idx]?.answer_key_json
+                            };
+                            return {...p, questions: qs} })}>
+                            <option value="ra">RA Query</option>
+                            <option value="mcq">Multiple Choice</option>
+                            <option value="msq">Multi-Select</option>
+                            <option value="free">Free Response</option>
+                            <option value="norm">Normalization</option>
+                            <option value="sql">SQL Query</option>
                           </select>
-                          <button onClick={()=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs.splice(idx,1); return {...p, questions: qs} })} style={{marginLeft:8,background:'#e74c3c'}}>Remove</button>
-                          {q.db_id && <button onClick={()=>{ const db = dbList.find(x=>String(x.id)===String(q.db_id)); openDbPreview(q.db_id, db?db.name:'' ) }} style={{marginLeft:6}}>Preview</button>}
-                          <button onClick={()=>{
-                            // open per-question edit modal; remember previous modal mode so
-                            // we can return to it after editing (supports editing within
-                            // the create/edit-assignment workflow).
-                            setModalPrevMode(modalMode)
-                            setModalPayload(p=>({...p, question_id: q.id, solution_query: q.solution_query || '', question_index: idx }))
-                            setModalMode('editQuestion')
-                            setModalOpen(true)
-                          }} style={{marginLeft:6}}>Edit Solution</button>
+                          {qtype === 'ra' && (
+                            <>
+                              <label style={{margin:0}}>Database</label>
+                              <select value={q.db_id||''} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], db_id: e.target.value||null}; return {...p, questions: qs} })}>
+                                <option value="">(none)</option>
+                                {dbList.map(d=> (<option key={d.id} value={d.id}>{d.name}</option>))}
+                              </select>
+                              {q.db_id && <button onClick={()=>{ const db = dbList.find(x=>String(x.id)===String(q.db_id)); openDbPreview(q.db_id, db?db.name:'' ) }} style={{marginLeft:6}}>Preview</button>}
+                            </>
+                          )}
+                          <button onClick={()=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs.splice(idx,1); return {...p, questions: qs} })} style={{marginLeft:'auto',background:'#e74c3c'}}>Remove</button>
                         </div>
-                        {!q.solution_query || String(q.solution_query).trim()==='' ? (
-                          <div style={{color:'red',fontSize:12,marginTop:6}}>Solution query is required. Click "Edit Solution" to add one.</div>
+                        {qtype === 'ra' ? (
+                          <>
+                            <button onClick={()=>{
+                              setModalPrevMode(modalMode)
+                              setModalPayload(p=>({...p, question_id: q.id, solution_query: q.solution_query || '', question_index: idx }))
+                              setModalMode('editQuestion')
+                              setModalOpen(true)
+                            }} style={{alignSelf:'flex-start'}}>Edit Solution</button>
+                            {!q.solution_query || String(q.solution_query).trim()==='' ? (
+                              <div style={{color:'red',fontSize:12}}>Solution query is required. Click "Edit Solution" to add one.</div>
+                            ) : (
+                              <div style={{color:'#666',fontSize:12}}>Solution query set</div>
+                            )}
+                          </>
                         ) : (
-                          <div style={{color:'#666',fontSize:12,marginTop:6}}>Solution query set</div>
+                          <>
+                            {qtype === 'mcq' && (
+                              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                                <label style={{fontSize:12,fontWeight:'bold'}}>Options (one per line)</label>
+                                <textarea rows={4} placeholder="A) Option 1&#10;B) Option 2&#10;C) Option 3" value={(q.options_json?.choices || []).join('\n')} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], options_json: { choices: e.target.value.split('\n') }}; return {...p, questions: qs} })} />
+                                <label style={{fontSize:12,fontWeight:'bold'}}>Correct Answer (e.g., "A" or index 0)</label>
+                                <textarea rows={2} placeholder="A" value={q.answer_key_json?.correct || ''} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], answer_key_json: { ...qs[idx].answer_key_json, correct: e.target.value }}; return {...p, questions: qs} })} />
+                              </div>
+                            )}
+                            {qtype === 'msq' && (
+                              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                                <label style={{fontSize:12,fontWeight:'bold'}}>Options (one per line)</label>
+                                <textarea rows={4} placeholder="A) Option 1&#10;B) Option 2&#10;C) Option 3" value={(q.options_json?.choices || []).join('\n')} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], options_json: { choices: e.target.value.split('\n') }}; return {...p, questions: qs} })} />
+                                <label style={{fontSize:12,fontWeight:'bold'}}>Correct Answers (select from options above)</label>
+                                <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:150,overflowY:'auto',border:'1px solid #ddd',borderRadius:4,padding:8,background:'#fafafa'}}>
+                                  {(q.options_json?.choices || []).map((choice, cidx) => (
+                                    <label key={cidx} style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                                      <input
+                                        type="checkbox"
+                                        checked={(q.answer_key_json?.correct || []).includes(choice)}
+                                        onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); const current = new Set(qs[idx]?.answer_key_json?.correct || []); if (e.target.checked) current.add(choice); else current.delete(choice); qs[idx] = {...qs[idx], answer_key_json: { ...qs[idx].answer_key_json, correct: Array.from(current) }}; return {...p, questions: qs} })}
+                                      />
+                                      <span style={{fontSize:12}}>{choice}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {qtype === 'norm' && (
+                              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                                <label style={{fontSize:12,fontWeight:'bold'}}>Normal Forms (select options to present)</label>
+                                {(() => { const defaultForms = ['1NF','2NF','3NF','BCNF','4NF','5NF']; const forms = (q.options_json?.forms || defaultForms);
+                                  return (
+                                    <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+                                      {forms.map(form => (
+                                        <label key={form} style={{display:'inline-flex',alignItems:'center',gap:6,border:'1px solid #eee',padding:'4px 8px',borderRadius:4}}>
+                                          <input type="checkbox" checked={(q.answer_key_json?.correct_forms || []).includes(form)} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); const current = new Set(qs[idx]?.answer_key_json?.correct_forms || []); if (e.target.checked) current.add(form); else current.delete(form); qs[idx] = {...qs[idx], answer_key_json: { ...(qs[idx]?.answer_key_json||{}), correct_forms: Array.from(current) }}; return {...p, questions: qs} })} />
+                                          <span>{form}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  ) })()}
+                                <div style={{display:'flex',gap:8,alignItems:'center',marginTop:6}}>
+                                  <label style={{margin:0}}>Target NF (optional)</label>
+                                  <select value={(q.answer_key_json?.target_nf || '').toString()} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); const prev = qs[idx]?.answer_key_json || {}; qs[idx] = {...qs[idx], answer_key_json: { ...prev, target_nf: e.target.value }}; return {...p, questions: qs} })}>
+                                    <option value="">(none)</option>
+                                    <option value="1NF">1NF</option>
+                                    <option value="2NF">2NF</option>
+                                    <option value="3NF">3NF</option>
+                                    <option value="BCNF">BCNF</option>
+                                    <option value="4NF">4NF</option>
+                                    <option value="5NF">5NF</option>
+                                  </select>
+                                </div>
+                                <div style={{marginTop:6}}>
+                                  <label style={{fontSize:12,fontWeight:'bold'}}>Functional Dependencies (one per line, e.g., "E → N,R,D")</label>
+                                  <textarea rows={4} placeholder="A,B → C
+T → K" value={fdTextMap[idx] || ''} onChange={e=>{
+  const text = e.target.value
+  setFdTextMap(prev => ({...prev, [idx]: text}))
+}} onBlur={e=>{
+  // Parse FDs on blur
+  const lines = e.target.value.split('\n')
+  const fds = lines.map(line => {
+    const parts = line.split('->')
+    if (parts.length<2) return null
+    const lhs = parts[0].split(',').map(s=>s.trim()).filter(Boolean)
+    const rhs = parts[1].split(',').map(s=>s.trim()).filter(Boolean)
+    if (lhs.length===0 || rhs.length===0) return null
+    return { lhs, rhs }
+  }).filter(Boolean)
+  setModalPayload(p=>{
+    const qs = (p.questions||[]).slice()
+    const prevOptions = qs[idx]?.options_json || {}
+    qs[idx] = {...qs[idx], options_json: { ...prevOptions, schema: { ...(prevOptions.schema||{}), fds } } }
+    return {...p, questions: qs}
+  })
+}} />
+                                </div>
+                                <div style={{marginTop:8}}>
+                                  <label style={{fontSize:12}}>Optional: Acceptable textual answers (one per line) or regex</label>
+                                  <textarea rows={3} placeholder="Correct answer 1&#10;Correct answer 2" value={(q.answer_key_json?.acceptable || []).join('\n')} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); const prev = qs[idx]?.answer_key_json || {}; qs[idx] = {...qs[idx], answer_key_json: { ...prev, acceptable: e.target.value.split('\n') }}; return {...p, questions: qs} })} />
+                                  <input placeholder="Regex (optional)" value={q.answer_key_json?.regex || ''} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); const prev = qs[idx]?.answer_key_json || {}; qs[idx] = {...qs[idx], answer_key_json: { ...prev, regex: e.target.value }}; return {...p, questions: qs} })} />
+                                  <label style={{fontSize:12,marginTop:8,display:'block'}}>Optional: Accepted decomposition signatures (one per line)</label>
+                                  <textarea rows={3} placeholder="{A,B} | {C,D}&#10;{P,E,N,R} | {T,K,H,D,M}" value={(q.answer_key_json?.decomposition_signatures || []).join('\n')} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); const prev = qs[idx]?.answer_key_json || {}; qs[idx] = {...qs[idx], answer_key_json: { ...prev, decomposition_signatures: e.target.value.split('\n').map(s=>s.trim()).filter(Boolean) }}; return {...p, questions: qs} })} />
+                                </div>
+                              </div>
+                            )}
+                            {qtype === 'free' && (
+                              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                                <label style={{fontSize:12,fontWeight:'bold'}}>Acceptable Answers (one per line)</label>
+                                <textarea rows={3} placeholder="Correct answer 1&#10;Correct answer 2" value={(q.answer_key_json?.acceptable || []).join('\n')} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], answer_key_json: { acceptable: e.target.value.split('\n'), regex: qs[idx]?.answer_key_json?.regex }}; return {...p, questions: qs} })} />
+                                <label style={{fontSize:12,fontWeight:'bold'}}>Or Regex Pattern (optional)</label>
+                                <input placeholder="^[0-9]+NF$" value={q.answer_key_json?.regex || ''} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], answer_key_json: { acceptable: qs[idx]?.answer_key_json?.acceptable || [], regex: e.target.value }}; return {...p, questions: qs} })} />
+                              </div>
+                            )}
+                            {qtype === 'sql' && (
+                              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                                <label style={{fontSize:12,fontWeight:'bold'}}>Database</label>
+                                <select value={(q.options_json?.database_file_id || '')} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], options_json: {...(qs[idx]?.options_json || {}), database_file_id: e.target.value ? parseInt(e.target.value) : null}}; return {...p, questions: qs} })}>
+                                  <option value="">-- Select a database --</option>
+                                  {dbList.map(db => (
+                                    <option key={db.id} value={db.id}>{db.name || db.filename || String(db.id)}</option>
+                                  ))}
+                                </select>
+                                <label style={{fontSize:12,fontWeight:'bold'}}>Expected Result SQL Query</label>
+                                <textarea rows={6} placeholder="SELECT id, name, age FROM users ORDER BY id" value={(q.answer_key_json?.expected_result_sql || '')} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], answer_key_json: {...(qs[idx]?.answer_key_json || {}), expected_result_sql: e.target.value}}; return {...p, questions: qs} })} style={{width:'100%', fontFamily:'monospace'}} />
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
-                    ))}
-                    <button onClick={()=>setModalPayload(p=>({...p, questions: [...(p.questions||[]), { prompt:'', points:10, db_id: null }]}))}>Add question</button>
+                    )})}
+                    <button onClick={()=>{
+                      const newIdx = (modalPayload.questions||[]).length
+                      setModalPayload(p=>({...p, questions: [...(p.questions||[]), { prompt:'', points:10, db_id: null, question_type: 'ra' }]}))
+                      setFdTextMap(prev => ({...prev, [newIdx]: ''}))
+                    }}>Add question</button>
                   </div>
                 </div>
               </>

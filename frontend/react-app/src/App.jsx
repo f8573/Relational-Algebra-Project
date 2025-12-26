@@ -7,7 +7,32 @@ import Login from './pages/Login'
 import api from './lib/api'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import AssignmentSidebar from './components/AssignmentSidebar'
+import SQLEditor from './components/SQLEditor'
 import { useNavigate } from 'react-router-dom'
+
+// Render LaTeX in prompts using KaTeX if available; safely escape HTML and keep newlines
+const renderPromptHTML = (prompt) => {
+  if (!prompt) return ''
+  const escapeHtml = (s) => s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+  let escaped = escapeHtml(prompt).replace(/\n/g, '<br/>')
+  const katex = (typeof window !== 'undefined' && window.katex) ? window.katex : null
+  if (katex) {
+    escaped = escaped.replace(/\$(.+?)\$/g, (m, expr)=>{
+      try {
+        return katex.renderToString(expr, { throwOnError: false })
+      } catch (e) {
+        return m
+      }
+    })
+  }
+  return escaped
+}
 
 // Small helper: try to parse a textual table-like output into rows/cols.
 function parseTableText(txt){
@@ -78,6 +103,11 @@ export default function App({ defaultShowAdmin = false }){
   const [assignmentQuestions, setAssignmentQuestions] = useState([])
   const [selectedQuestionId, setSelectedQuestionId] = useState(null)
   const [lastSubmissionResult, setLastSubmissionResult] = useState(null)
+  const [normalizationAnswer, setNormalizationAnswer] = useState('')
+  const [mcqAnswer, setMcqAnswer] = useState('')
+  const [msqAnswers, setMsqAnswers] = useState([])
+  const [freeResponseAnswer, setFreeResponseAnswer] = useState('')
+  const [sqlAnswer, setSqlAnswer] = useState('')
   const editorSetContentRef = React.useRef(null)
   const navigate = useNavigate()
 
@@ -165,6 +195,15 @@ export default function App({ defaultShowAdmin = false }){
     load()
     return ()=>{ mounted = false }
   }, [selectedAssignment])
+
+  // Reset all answer states when question changes
+  useEffect(() => {
+    setNormalizationAnswer('')
+    setMcqAnswer('')
+    setMsqAnswers([])
+    setFreeResponseAnswer('')
+    setSqlAnswer('')
+  }, [selectedQuestionId])
 
   const handleRefreshSession = async () => {
     try{
@@ -310,7 +349,7 @@ export default function App({ defaultShowAdmin = false }){
                   {selectedQuestionId ? (
                     <div style={{padding:10,background:'#fbfbff',border:'1px solid #f0f4ff',borderRadius:6}}>
                       <div style={{fontWeight:700,marginBottom:6}}>Question</div>
-                      <div style={{fontSize:14,color:'#222'}}>{(assignmentQuestions.find(q=>q.id===selectedQuestionId)?.prompt) || 'No prompt available'}</div>
+                      <div style={{fontSize:14,color:'#222'}} dangerouslySetInnerHTML={{__html: renderPromptHTML(assignmentQuestions.find(q=>q.id===selectedQuestionId)?.prompt || '') || 'No prompt available'}} />
                       <div style={{fontSize:12,color:'#666',marginTop:6}}>{(() => {
                         const q = assignmentQuestions.find(q=>q.id===selectedQuestionId)
                         return q ? (q.score!=null ? `${q.score}/${q.points}` : `-/${q.points}`) : ''
@@ -359,27 +398,301 @@ export default function App({ defaultShowAdmin = false }){
               </div>
             </div>
           )}
-          <Editor onRun={run} course={course} registerSetContent={registerEditorSetContent}
-            onSubmit={async ()=>{
-              const query = (window.__lastRunQuery || '')
-              if (!query) {
-                alert('No query to submit. Use Run Query or enter text in the editor.')
-                return
+          {(() => {
+            const currentQuestion = assignmentQuestions.find(q => q.id === selectedQuestionId)
+            const qtype = (currentQuestion?.question_type || 'ra').toLowerCase()
+            
+            if (qtype === 'mcq') {
+              const options = Array.isArray(currentQuestion?.options?.choices) ? currentQuestion.options.choices : []
+              return (
+                <div style={{marginTop:12,maxWidth:600}}>
+                  <label style={{display:'block',fontSize:14,fontWeight:'bold',marginBottom:12}}>Select one answer:</label>
+                  <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                    {options.map((opt, idx) => (
+                      <label key={idx} style={{display:'flex',alignItems:'center',gap:8,padding:10,border:'1px solid #ddd',borderRadius:6,cursor:'pointer',background:mcqAnswer===opt?'#f0f4ff':'#fff'}}>
+                        <input
+                          type="radio"
+                          name="mcq"
+                          value={opt}
+                          checked={mcqAnswer === opt}
+                          onChange={(e) => setMcqAnswer(e.target.value)}
+                        />
+                        <span style={{flex:1}}>{opt}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!mcqAnswer) {
+                        alert('Please select an answer')
+                        return
+                      }
+                      if (!selectedQuestionId) { alert('Select a question'); return }
+                      try {
+                        const payload = {
+                          user_id: user.id,
+                          assessment_id: selectedAssignment.id,
+                          question_id: selectedQuestionId,
+                          answer_payload: { selected: mcqAnswer }
+                        }
+                        const res = await api.submitAnswer(payload)
+                        if (res.ok && res.data) {
+                          setLastSubmissionResult(res.data.result || res.data)
+                          const qres = await api.getAssessmentQuestions(selectedAssignment.id)
+                          if (qres.ok && qres.data) { setAssignmentQuestions(qres.data.questions || []) }
+                          window.dispatchEvent(new Event('assignments:refresh'))
+                        } else {
+                          alert('Submit failed')
+                        }
+                      } catch (e) { console.error('Submit failed', e); alert('Submit failed') }
+                    }}
+                    style={{marginTop:12,padding:'8px 16px',background:'#8348AD',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}
+                  >
+                    Submit Answer
+                  </button>
+                </div>
+              )
+            }
+            
+            if (qtype === 'msq') {
+              const options = Array.isArray(currentQuestion?.options?.choices) ? currentQuestion.options.choices : []
+              return (
+                <div style={{marginTop:12,maxWidth:600}}>
+                  <label style={{display:'block',fontSize:14,fontWeight:'bold',marginBottom:12}}>Select all that apply:</label>
+                  <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                    {options.map((opt, idx) => (
+                      <label key={idx} style={{display:'flex',alignItems:'center',gap:8,padding:10,border:'1px solid #ddd',borderRadius:6,cursor:'pointer',background:msqAnswers.includes(opt)?'#f0f4ff':'#fff'}}>
+                        <input
+                          type="checkbox"
+                          value={opt}
+                          checked={msqAnswers.includes(opt)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setMsqAnswers([...msqAnswers, opt])
+                            } else {
+                              setMsqAnswers(msqAnswers.filter(a => a !== opt))
+                            }
+                          }}
+                        />
+                        <span style={{flex:1}}>{opt}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (msqAnswers.length === 0) {
+                        alert('Please select at least one answer')
+                        return
+                      }
+                      if (!selectedQuestionId) { alert('Select a question'); return }
+                      try {
+                        const payload = {
+                          user_id: user.id,
+                          assessment_id: selectedAssignment.id,
+                          question_id: selectedQuestionId,
+                          answer_payload: { selected: msqAnswers }
+                        }
+                        const res = await api.submitAnswer(payload)
+                        if (res.ok && res.data) {
+                          setLastSubmissionResult(res.data.result || res.data)
+                          const qres = await api.getAssessmentQuestions(selectedAssignment.id)
+                          if (qres.ok && qres.data) { setAssignmentQuestions(qres.data.questions || []) }
+                          window.dispatchEvent(new Event('assignments:refresh'))
+                        } else {
+                          alert('Submit failed')
+                        }
+                      } catch (e) { console.error('Submit failed', e); alert('Submit failed') }
+                    }}
+                    style={{marginTop:12,padding:'8px 16px',background:'#8348AD',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}
+                  >
+                    Submit Answer
+                  </button>
+                </div>
+              )
+            }
+            
+            if (qtype === 'free') {
+              return (
+                <div style={{marginTop:12,maxWidth:800}}>
+                  <label style={{display:'block',fontSize:14,fontWeight:'bold',marginBottom:6}}>Your Answer</label>
+                  <textarea
+                    rows={8}
+                    style={{width:'100%',fontFamily:'inherit',fontSize:14,padding:10,border:'1px solid #ddd',borderRadius:4,boxSizing:'border-box'}}
+                    placeholder="Enter your answer here..."
+                    value={freeResponseAnswer}
+                    onChange={(e) => setFreeResponseAnswer(e.target.value)}
+                  />
+                  <button
+                    onClick={async () => {
+                      if (!freeResponseAnswer.trim()) {
+                        alert('Please enter your answer')
+                        return
+                      }
+                      if (!selectedQuestionId) { alert('Select a question'); return }
+                      try {
+                        const payload = {
+                          user_id: user.id,
+                          assessment_id: selectedAssignment.id,
+                          question_id: selectedQuestionId,
+                          answer_payload: { text: freeResponseAnswer }
+                        }
+                        const res = await api.submitAnswer(payload)
+                        if (res.ok && res.data) {
+                          setLastSubmissionResult(res.data.result || res.data)
+                          const qres = await api.getAssessmentQuestions(selectedAssignment.id)
+                          if (qres.ok && qres.data) { setAssignmentQuestions(qres.data.questions || []) }
+                          window.dispatchEvent(new Event('assignments:refresh'))
+                        } else {
+                          alert('Submit failed')
+                        }
+                      } catch (e) { console.error('Submit failed', e); alert('Submit failed') }
+                    }}
+                    style={{marginTop:8,padding:'8px 16px',background:'#8348AD',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}
+                  >
+                    Submit Answer
+                  </button>
+                </div>
+              )
+            }
+            
+            if (qtype === 'norm') {
+              const renderLatex = (text) => {
+                if (!text) return ''
+                const katex = (typeof window !== 'undefined' && window.katex) ? window.katex : null
+                if (!katex) return text
+                
+                let result = text
+                // Replace inline math $...$ with katex rendering
+                result = result.replace(/\$([^\$]+)\$/g, (match, expr) => {
+                  try {
+                    return katex.renderToString(expr, { throwOnError: false })
+                  } catch (e) {
+                    return match
+                  }
+                })
+                return result
               }
-              if (!selectedQuestionId){ alert('Select a question'); return }
-              try{
-                const payload = { user_id: user.id, assessment_id: selectedAssignment.id, question_id: selectedQuestionId, query }
-                const res = await api.submitAnswer(payload)
-                if (res.ok && res.data){
-                  setLastSubmissionResult(res.data.result || res.data)
-                  const qres = await api.getAssessmentQuestions(selectedAssignment.id)
-                  if (qres.ok && qres.data){ setAssignmentQuestions(qres.data.questions || []); }
-                } else {
-                  alert('Submit failed')
-                }
-              }catch(e){ console.error('Submit failed', e); alert('Submit failed') }
-            }}
-          />
+              
+              return (
+                <div style={{marginTop:12,display:'flex',gap:12,alignItems:'stretch',flexWrap:'wrap'}}>
+                  <div style={{flex:'1 1 380px',minWidth:320,boxSizing:'border-box'}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',marginBottom:6}}>Your Decomposition</label>
+                    <textarea
+                      rows={12}
+                      style={{width:'100%',fontFamily:'monospace',fontSize:14,padding:8,border:'1px solid #ddd',borderRadius:4,boxSizing:'border-box'}}
+                      placeholder="List each relation and its attributes, one per line.\n\nExample:\nR_1(A,B)\nR_2(B,C,D)\nR_3(A,B)\n\nOr use LaTeX notation:\nR_1(A,B)\nR_2(B,C,D)"
+                      value={normalizationAnswer}
+                      onChange={(e) => setNormalizationAnswer(e.target.value)}
+                    />
+                    <button
+                      onClick={async () => {
+                        if (!normalizationAnswer.trim()) {
+                          alert('Please enter your decomposition')
+                          return
+                        }
+                        if (!selectedQuestionId) { alert('Select a question'); return }
+                        try {
+                          const payload = {
+                            user_id: user.id,
+                            assessment_id: selectedAssignment.id,
+                            question_id: selectedQuestionId,
+                            answer_payload: { text: normalizationAnswer }
+                          }
+                          const res = await api.submitAnswer(payload)
+                          if (res.ok && res.data) {
+                            setLastSubmissionResult(res.data.result || res.data)
+                            const qres = await api.getAssessmentQuestions(selectedAssignment.id)
+                            if (qres.ok && qres.data) { setAssignmentQuestions(qres.data.questions || []) }
+                            window.dispatchEvent(new Event('assignments:refresh'))
+                          } else {
+                            alert('Submit failed')
+                          }
+                        } catch (e) { console.error('Submit failed', e); alert('Submit failed') }
+                      }}
+                      style={{marginTop:8,padding:'8px 16px',background:'#8348AD',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}
+                    >
+                      Submit Answer
+                    </button>
+                  </div>
+                  <div style={{flex:'1 1 380px',minWidth:320,boxSizing:'border-box'}}>
+                    <label style={{display:'block',fontSize:12,fontWeight:'bold',marginBottom:6}}>Preview</label>
+                    <div style={{padding:12,border:'1px solid #e0e0e0',borderRadius:4,background:'#fafafa',minHeight:300,overflowY:'auto',fontSize:14,lineHeight:1.8,fontFamily:'monospace',boxSizing:'border-box'}}>
+                      <div dangerouslySetInnerHTML={{__html: (normalizationAnswer || '').split('\n').map(line => {
+                        const trimmed = line.trim()
+                        if (!trimmed) return '<br/>'
+                        // Simple rendering: replace subscripts and special chars
+                        let rendered = trimmed.replace(/_(\w)/g, '<sub>$1</sub>')
+                        return rendered + '<br/>'
+                      }).join('') || '<span style="color:#999">Your decomposition will appear here...</span>'}} />
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+            
+            if (qtype === 'sql') {
+              return (
+                <div style={{marginTop:12,maxWidth:1000}}>
+                  <label style={{display:'block',fontSize:14,fontWeight:'bold',marginBottom:8}}>Write your SQL query:</label>
+                  <SQLEditor value={sqlAnswer} onChange={setSqlAnswer} />
+                  <button
+                    onClick={async () => {
+                      if (!sqlAnswer.trim()) {
+                        alert('Please enter a SQL query')
+                        return
+                      }
+                      if (!selectedQuestionId) { alert('Select a question'); return }
+                      try {
+                        const payload = {
+                          user_id: user.id,
+                          assessment_id: selectedAssignment.id,
+                          question_id: selectedQuestionId,
+                          answer_payload: { sql: sqlAnswer }
+                        }
+                        const res = await api.submitAnswer(payload)
+                        if (res.ok && res.data) {
+                          setLastSubmissionResult(res.data.result || res.data)
+                          const qres = await api.getAssessmentQuestions(selectedAssignment.id)
+                          if (qres.ok && qres.data) { setAssignmentQuestions(qres.data.questions || []) }
+                          window.dispatchEvent(new Event('assignments:refresh'))
+                        } else {
+                          alert('Submit failed')
+                        }
+                      } catch (e) { console.error('Submit failed', e); alert('Submit failed') }
+                    }}
+                    style={{marginTop:12,padding:'8px 16px',background:'#8348AD',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}
+                  >
+                    Submit Answer
+                  </button>
+                </div>
+              )
+            }
+            
+            return (
+              <Editor onRun={run} course={course} registerSetContent={registerEditorSetContent}
+                onSubmit={async ()=>{
+                  const query = (window.__lastRunQuery || '')
+                  if (!query) {
+                    alert('No query to submit. Use Run Query or enter text in the editor.')
+                    return
+                  }
+                  if (!selectedQuestionId){ alert('Select a question'); return }
+                  try{
+                    const payload = { user_id: user.id, assessment_id: selectedAssignment.id, question_id: selectedQuestionId, query }
+                    const res = await api.submitAnswer(payload)
+                    if (res.ok && res.data){
+                      setLastSubmissionResult(res.data.result || res.data)
+                      const qres = await api.getAssessmentQuestions(selectedAssignment.id)
+                      if (qres.ok && qres.data){ setAssignmentQuestions(qres.data.questions || []); }
+                      window.dispatchEvent(new Event('assignments:refresh'))
+                    } else {
+                      alert('Submit failed')
+                    }
+                  }catch(e){ console.error('Submit failed', e); alert('Submit failed') }
+                }}
+              />
+            )
+          })()}
           {lastSubmissionResult && (
             <div style={{marginTop:12,padding:8,border:'1px solid #eee',borderRadius:6,background:'#fff'}}>
               <h4>Submission Result</h4>

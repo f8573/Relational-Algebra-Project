@@ -67,6 +67,14 @@ class Question(db.Model):
     solution_query = db.Column(db.Text, nullable=True)
     db_id = db.Column(db.Integer, db.ForeignKey('databases.id'), nullable=True)
 
+    # New: support multiple question types beyond RA query
+    # 'ra' (default), 'mcq' (multiple choice), 'msq' (multi-select),
+    # 'free' (free response), 'norm' (normalization theory)
+    question_type = db.Column(db.String(10), nullable=False, default='ra')
+    # Store choices/options and grading keys as JSON for non-RA types
+    options_json = db.Column(db.JSON, default={})
+    answer_key_json = db.Column(db.JSON, default={})
+
     database = db.relationship('DatabaseFile')
 
     assessment = db.relationship('Assessment', back_populates='questions')
