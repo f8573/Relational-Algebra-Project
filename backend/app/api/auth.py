@@ -42,13 +42,19 @@ def login():
         except Exception:
             current_app.logger.exception('Failed to record login audit')
 
+    # Determine token lifetime based on 'remember' flag
+    remember = bool(data.get('remember')) if isinstance(data, dict) else False
+
     # Generate JWT token
     payload = {
         'user_id': user.id,
         'email': user.email,
-        'exp': datetime.utcnow() + timedelta(hours=24),
-        'iat': datetime.utcnow()
+        'iat': datetime.utcnow(),
+        'remember': bool(remember)
     }
+    if remember:
+        # 30 days expiration
+        payload['exp'] = datetime.utcnow() + timedelta(days=30)
     token = jwt.encode(payload, current_app.config['SECRET_KEY'], 
                       algorithm=current_app.config['JWT_ALGORITHM'])
 
@@ -142,14 +148,23 @@ def refresh():
     user = request.user
     
     # Generate new token
+    # Refresh token: preserve "remember" preference from original token if present
+    try:
+        orig_payload = jwt.decode(request.token, current_app.config['SECRET_KEY'], algorithms=[current_app.config['JWT_ALGORITHM']], options={"verify_exp": False})
+    except Exception:
+        orig_payload = {}
+
+    remember = bool(orig_payload.get('remember'))
     payload = {
         'user_id': user.id,
         'email': user.email,
-        'exp': datetime.utcnow() + timedelta(hours=24),
-        'iat': datetime.utcnow()
+        'iat': datetime.utcnow(),
+        'remember': bool(remember)
     }
-    token = jwt.encode(payload, current_app.config['SECRET_KEY'], 
-                      algorithm=current_app.config['JWT_ALGORITHM'])
+    if remember:
+        payload['exp'] = datetime.utcnow() + timedelta(days=30)
+
+    token = jwt.encode(payload, current_app.config['SECRET_KEY'], algorithm=current_app.config['JWT_ALGORITHM'])
     
     return jsonify({
         "status": "success",

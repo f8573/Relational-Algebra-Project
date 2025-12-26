@@ -2,7 +2,8 @@
 const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) || '/api'
 
 function getAuthHeaders(){
-  const token = localStorage.getItem('authToken')
+  // Prefer sessionStorage (session tokens) over localStorage (remember-me tokens)
+  const token = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('authToken')) || (typeof localStorage !== 'undefined' && localStorage.getItem('authToken'))
   const headers = { 'Content-Type': 'application/json' }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`

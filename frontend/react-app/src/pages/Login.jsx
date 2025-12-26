@@ -6,6 +6,7 @@ export default function Login({ onLoginSuccess }) {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [remember, setRemember] = useState(false)
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -16,7 +17,7 @@ export default function Login({ onLoginSuccess }) {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password, remember })
       })
 
       const data = await response.json()
@@ -28,8 +29,20 @@ export default function Login({ onLoginSuccess }) {
 
       // Login successful
       if (data.token && data.user) {
-        localStorage.setItem('authToken', data.token)
-        localStorage.setItem('user', JSON.stringify(data.user))
+        // Persist token according to "remember" preference
+        try {
+          if (remember) {
+            localStorage.setItem('authToken', data.token)
+            localStorage.setItem('user', JSON.stringify(data.user))
+          } else {
+            sessionStorage.setItem('authToken', data.token)
+            sessionStorage.setItem('user', JSON.stringify(data.user))
+          }
+        } catch (e) {
+          // Fallback: always use localStorage if sessionStorage unavailable
+          localStorage.setItem('authToken', data.token)
+          localStorage.setItem('user', JSON.stringify(data.user))
+        }
         // Debug: log token fingerprint (not full token) to help trace auth issues
         try { console.debug('Login success, token fingerprint:', (data.token || '').substring(0,8) + '...') } catch (e) {}
         onLoginSuccess(data.user, data.token)
@@ -75,9 +88,15 @@ export default function Login({ onLoginSuccess }) {
             />
           </div>
 
-          <button type="submit" disabled={loading} className="login-button">
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+            <label style={{display:'flex',alignItems:'center',gap:8,fontSize:14}}>
+              <input type="checkbox" checked={remember} onChange={(e)=>setRemember(e.target.checked)} disabled={loading} />
+              Remember me for 30 days
+            </label>
+            <button type="submit" disabled={loading} className="login-button">
+              {loading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </div>
         </form>
 
         <div style={{marginTop:12}}>
