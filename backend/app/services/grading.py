@@ -737,22 +737,32 @@ def grade_submission(submission: Submission) -> Dict:
             earned += (tc.weight or 1.0)
             feedback.append({"tc": tc.id, "result": "pass"})
         else:
-            # Check milestones for partial credit
-            ms_score = 0.0
+            # Check milestones for partial credit. Milestone `points` are
+            # stored as raw points (out of `question.points`). We must
+            # convert those points into the testcase-weight space so the
+            # final normalized score (question.points * earned/total_weight)
+            # correctly includes milestone points without allowing
+            # final_score to exceed intended bounds due to mixing units.
+            ms_points = 0.0
             for m in QuestionMilestone.query.filter_by(
                 question_id=question.id
             ).all():
                 # Run the milestone check query against the same DB
                 chk_out, chk_err = executor.execute(m.check_query or "")
-                if not chk_err and chk_out.strip():
-                    ms_score += getattr(m, "points", 0)
-            if ms_score:
-                earned += ms_score
+                if not chk_err and chk_out and str(chk_out).strip():
+                    ms_points += float(getattr(m, "points", 0) or 0.0)
+            if ms_points:
+                # Convert milestone points into equivalent weight units so
+                # they can be added to `earned` (which is in weight units).
+                q_points = float(question.points or 0) or 1.0
+                # total_weight is guaranteed > 0 earlier when computed
+                ms_weight = (ms_points / q_points) * float(total_weight)
+                earned += ms_weight
                 feedback.append(
                     {
                         "tc": tc.id,
                         "result": "partial",
-                        "milestone_points": ms_score,
+                        "milestone_points": ms_points,
                     }
                 )
             else:

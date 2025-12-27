@@ -8,8 +8,8 @@ body{font-family:system-ui,Segoe UI,Roboto,Arial;background:#f6f7fb;margin:0;pad
 .course-selector select{padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px}
 .course-selector.error{color:#c33}
 .user-info{display:flex;align-items:center;gap:12px;font-size:14px}
-.logout-button{padding:6px 12px;font-size:12px;background:#888;color:#fff;border:none;border-radius:4px;cursor:pointer;transition:background 0.2s}
-.logout-button:hover{background:#666}
+.logout-button{padding:6px 12px;font-size:12px;background:#e74c3c;color:#fff;border:none;border-radius:4px;cursor:pointer;transition:background 0.2s}
+.logout-button:hover{background:#c43}
 .left,.center,.right{background:#fff;padding:12px;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.06)}
 textarea{font-family:monospace}
 button{padding:8px 10px;border-radius:6px;border:none;background:#8348AD;color:#fff;cursor:pointer}

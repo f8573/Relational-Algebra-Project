@@ -58,6 +58,17 @@ def submit_answer():
     query = payload.get('query', '')
     answer_payload = payload.get('answer_payload')
 
+    # Check submission limit
+    q = Question.query.get(question_id)
+    if q and q.submission_limit > 0:
+        # Count submissions for this user on this question
+        sub_count = Submission.query.join(Attempt).filter(
+            Attempt.user_id == user_id,
+            Submission.question_id == question_id
+        ).count()
+        if sub_count >= q.submission_limit:
+            return jsonify({'error': 'Submission limit reached'}), 400
+
     # Find or create Attempt
     attempt = (
         Attempt.query.filter_by(user_id=user_id, assessment_id=assessment_id)
@@ -69,7 +80,6 @@ def submit_answer():
         db.session.commit()
 
     # Determine question type to store appropriate fields
-    q = Question.query.get(question_id)
     qtype = (getattr(q, 'question_type', 'ra') or 'ra').lower() if q else 'ra'
     submission = Submission(
         attempt_id=attempt.id,
@@ -92,13 +102,21 @@ def submit_answer():
 
     # Recompute attempt total score
     try:
-        subs = Submission.query.filter_by(attempt_id=attempt.id).all()
-        total = sum((s.score_earned or 0.0) for s in subs)
+        # Sum only the latest submission per question for this attempt.
+        subs = Submission.query.filter_by(attempt_id=attempt.id).order_by(Submission.question_id, Submission.last_updated.desc()).all()
+        latest_by_q = {}
+        for s in subs:
+            qid = getattr(s, 'question_id', None)
+            if qid is None:
+                continue
+            if qid not in latest_by_q:
+                latest_by_q[qid] = float(s.score_earned or 0.0)
+        total = sum(latest_by_q.values())
         attempt.total_score = float(total)
         db.session.add(attempt)
         db.session.commit()
     except Exception:
-        pass
+        current_app.logger.exception('Failed recomputing attempt total score for attempt %s', attempt.id)
 
     return jsonify({
         "status": "graded",
@@ -154,8 +172,20 @@ def list_assessment_questions(assessment_id):
                 stmt = None
             try:
                 from sqlalchemy import text
-                res = db.session.execute(text("SELECT id, prompt, points, db_id, solution_query FROM questions WHERE assessment_id = :aid ORDER BY id"), {'aid': assessment_id})
-                fetched = res.fetchall()
+                # Older DBs may lack newer columns. Query table info and select
+                # only the columns that actually exist to avoid OperationalError.
+                cols_res = db.session.execute(text("PRAGMA table_info(questions)"))
+                existing = set([row[1] for row in cols_res.fetchall()])
+                select_cols = []
+                for c in ['id', 'prompt', 'points', 'db_id', 'solution_query', 'question_type', 'options_json', 'answer_key_json', 'submission_limit']:
+                    if c in existing:
+                        select_cols.append(c)
+                if not select_cols:
+                    fetched = []
+                else:
+                    sql = f"SELECT {', '.join(select_cols)} FROM questions WHERE assessment_id = :aid ORDER BY id"
+                    res = db.session.execute(text(sql), {'aid': assessment_id})
+                    fetched = res.fetchall()
                 for r in fetched:
                     try:
                         m = r._mapping
@@ -165,6 +195,10 @@ def list_assessment_questions(assessment_id):
                         q.points = m.get('points')
                         q.db_id = m.get('db_id')
                         q.solution_query = m.get('solution_query')
+                        q.question_type = m.get('question_type')
+                        q.options_json = m.get('options_json')
+                        q.answer_key_json = m.get('answer_key_json')
+                        q.submission_limit = m.get('submission_limit')
                         rows.append(q)
                     except Exception:
                         vals = list(r)
@@ -174,6 +208,10 @@ def list_assessment_questions(assessment_id):
                         q.points = vals[2]
                         q.db_id = vals[3] if len(vals) > 3 else None
                         q.solution_query = vals[4] if len(vals) > 4 else None
+                        q.question_type = vals[5] if len(vals) > 5 else 'ra'
+                        q.options_json = vals[6] if len(vals) > 6 else None
+                        q.answer_key_json = vals[7] if len(vals) > 7 else None
+                        q.submission_limit = vals[8] if len(vals) > 8 else 0
                         rows.append(q)
             except Exception:
                 current_app.logger.exception('Failed raw-selecting questions for assessment %s', assessment_id)
@@ -210,9 +248,24 @@ def list_assessment_questions(assessment_id):
                 'db_id': _get(q, 'db_id'),
                 'solution_query': _get(q, 'solution_query'),
                 'question_type': (_get(q, 'question_type') or 'ra'),
-                'options': _jsonify(_get(q, 'options_json'))
+                'options': _jsonify(_get(q, 'options_json')),
+                'answer_key': _jsonify(_get(q, 'answer_key_json')),
+                'submission_limit': _get(q, 'submission_limit') or 0
             }
             total_points += float(qobj['points'] or 0)
+            
+            # Count submissions for this question
+            try:
+                qid = qobj['id']
+                if qid is not None:
+                    sub_count = Submission.query.join(Attempt).filter(
+                        Attempt.user_id == user.id,
+                        Submission.question_id == qid
+                    ).count()
+                    qobj['submission_count'] = sub_count
+            except Exception:
+                qobj['submission_count'] = 0
+            
             sub = None
             try:
                 qid = qobj['id']
@@ -231,6 +284,35 @@ def list_assessment_questions(assessment_id):
                 qobj['score'] = None
                 qobj['student_query'] = None
                 qobj['answer_payload'] = None
+            # Heuristic: if question_type is generic or missing, infer from options/answer_key
+            try:
+                qt = (qobj.get('question_type') or 'ra')
+                if not qt or qt == 'ra':
+                    ak = qobj.get('answer_key') or {}
+                    opts = qobj.get('options') or {}
+                    # SQL question if expected_result_sql present or options indicate database
+                    if isinstance(ak, dict) and ak.get('expected_result_sql'):
+                        qobj['question_type'] = 'sql'
+                    elif isinstance(opts, dict) and opts.get('database_file_id'):
+                        qobj['question_type'] = 'sql'
+                    # Multiple choice / multi-select
+                    elif isinstance(opts, dict) and isinstance(opts.get('choices'), list):
+                        correct = ak.get('correct') if isinstance(ak, dict) else None
+                        if isinstance(correct, list):
+                            qobj['question_type'] = 'msq'
+                        else:
+                            qobj['question_type'] = 'mcq'
+                    # Normalization/decomposition
+                    elif isinstance(ak, dict) and ak.get('target_nf'):
+                        qobj['question_type'] = 'norm'
+                    # Free response
+                    elif isinstance(ak, dict) and (ak.get('acceptable') or ak.get('regex')):
+                        qobj['question_type'] = 'free'
+                    else:
+                        # leave as 'ra' by default
+                        qobj['question_type'] = 'ra'
+            except Exception:
+                pass
             qs.append(qobj)
 
         percent = (user_total / total_points * 100.0) if total_points > 0 else None

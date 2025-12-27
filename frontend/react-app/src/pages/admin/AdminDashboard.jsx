@@ -153,17 +153,18 @@ export default function AdminDashboard({ onClose, fullPage = false }){
       if (res.ok && res.data){
         const found = (res.data.assignments||[]).find(a=>String(a.id)===String(assignmentId))
           if (found){
-            const questions = (found.questions||[]).map(q=>({
-              prompt: q.prompt,
-              points: q.points,
-              db_id: q.db_id || null,
-              solution_query: q.solution_query || '',
-              id: q.id,
-              question_type: q.question_type || 'ra',
-              options_json: q.options_json || {},
-              answer_key_json: q.answer_key_json || {}
-            }))
-            setModalPayload(p=>({...p, questions }))
+              const questions = (found.questions||[]).map(q=>({
+                prompt: q.prompt,
+                points: q.points,
+                db_id: q.db_id || null,
+                solution_query: q.solution_query || '',
+                id: q.id,
+                question_type: q.question_type || 'ra',
+                options_json: q.options_json || {},
+                answer_key_json: q.answer_key_json || {},
+                submission_limit: q.submission_limit || 0
+              }))
+              setModalPayload(p=>({...p, questions, type: found.type || 'assignment', time_limit_minutes: found.time_limit_minutes || null }))
             // Initialize FD text map
             const newFdMap = {}
             questions.forEach((q, idx) => {
@@ -255,7 +256,7 @@ export default function AdminDashboard({ onClose, fullPage = false }){
             </div>
           )}
           <div style={{marginBottom:8}}>
-            {selectedCourse && <button onClick={()=>{ setModalMode('createAssignment'); setModalPayload({ title: '', questions: [] }); setFdTextMap({}); setModalOpen(true); refreshDbList() }} style={{width:'100%'}}>New Assignment</button>}
+            {selectedCourse && <button onClick={()=>{ setModalMode('createAssignment'); setModalPayload({ title: '', questions: [], type: 'assignment', time_limit_minutes: null }); setFdTextMap({}); setModalOpen(true); refreshDbList() }} style={{width:'100%'}}>New Assignment</button>}
           </div>
           <ul>
             {assignments.map(a=> (
@@ -334,12 +335,12 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                 await submitCourseModal()
                   } else if (modalMode==='createAssignment'){
                     const t = (modalPayload.title||'').trim(); if (!t){ alert('Title required'); return }
-                    const payload = { title: t, questions: modalPayload.questions || [] }
+                    const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null }
                     const res = await admin.createAssignment(selectedCourse.id, payload)
                     if (res.ok) { loadAssignments(selectedCourse.id); setModalOpen(false) } else alert('Create failed')
               } else if (modalMode==='editAssignment'){
                 const t = (modalPayload.title||'').trim(); if (!t){ alert('Title required'); return }
-                const payload = { title: t, questions: modalPayload.questions || [] }
+                const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null }
                 const res = await admin.updateAssignment(modalPayload.id, payload)
                 if (res.ok) { loadAssignments(modalPayload.courseId); setModalOpen(false) } else alert('Update failed')
               } else if (modalMode==='enrollMember'){
@@ -438,6 +439,24 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                     <div style={{display:'flex',gap:8,marginBottom:8}}>
                       <button onClick={refreshDbList}>Refresh DBs</button>
                     </div>
+                    <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
+                      <input type="file" id="course-dbfile" accept=".db,.sqlite,.sqlite3" />
+                      <button onClick={async ()=>{
+                        const el = document.getElementById('course-dbfile')
+                        if (!el || !el.files || el.files.length===0){ alert('Pick a file'); return }
+                        const f = el.files[0]
+                        const allowed = ['.db','.sqlite','.sqlite3']
+                        const name = f.name || ''
+                        const dot = name.lastIndexOf('.')
+                        const ext = dot >= 0 ? name.slice(dot).toLowerCase() : ''
+                        if (!allowed.includes(ext)){
+                          alert('Unsupported file type. Please upload a .db or .sqlite file.')
+                          return
+                        }
+                        await uploadDatabase(f, f.name)
+                        await refreshDbList()
+                      }} disabled={dbUploading}>{dbUploading ? 'Uploading...' : 'Upload'}</button>
+                    </div>
                     <div style={{maxHeight:160,overflow:'auto',border:'1px solid #f0f0f0',padding:8,borderRadius:6}}>
                       {dbList.length===0 && <div style={{color:'#666'}}>No databases uploaded.</div>}
                       {dbList.map(d=> (
@@ -465,29 +484,20 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                 <label>Title</label>
                 <input type="text" value={modalPayload.title||''} onChange={e=>setModalPayload(p=>({...p,title:e.target.value}))} />
 
-                <div style={{marginTop:8}}>
-                  <label>Upload database (optional)</label>
-                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                    <input type="file" id="dbfile" accept=".db,.sqlite,.sqlite3" />
-                    <button onClick={async ()=>{
-                      const el = document.getElementById('dbfile')
-                      if (!el || !el.files || el.files.length===0){ alert('Pick a file'); return }
-                      const f = el.files[0]
-                      const allowed = ['.db','.sqlite','.sqlite3']
-                      const name = f.name || ''
-                      const dot = name.lastIndexOf('.')
-                      const ext = dot >= 0 ? name.slice(dot).toLowerCase() : ''
-                      if (!allowed.includes(ext)){
-                        alert('Unsupported file type. Please upload a .db or .sqlite file.')
-                        return
-                      }
-                      await uploadDatabase(f, f.name)
-                    }} disabled={dbUploading}>{dbUploading ? 'Uploading...' : 'Upload'}</button>
-                    <button onClick={refreshDbList} style={{marginLeft:6}}>Refresh DBs</button>
-                  </div>
-                </div>
+                {/* database upload moved to course edit modal */}
 
                 <div style={{marginTop:8}}>
+                  <label>Assignment Type</label>
+                  <select value={modalPayload.type || 'assignment'} onChange={e=>setModalPayload(p=>({...p, type: e.target.value}))}>
+                    <option value="assignment">Assignment</option>
+                    <option value="quiz">Quiz</option>
+                    <option value="exam">Exam</option>
+                  </select>
+                  <div style={{marginTop:8}}>
+                    <label>Time limit (minutes, optional)</label>
+                    <input type="number" min="0" value={modalPayload.time_limit_minutes || ''} onChange={e=>setModalPayload(p=>({...p, time_limit_minutes: e.target.value ? parseInt(e.target.value) : null}))} />
+                  </div>
+                
                   <label>Questions</label>
                   <div style={{display:'flex',flexDirection:'column',gap:8}}>
                     {(modalPayload.questions||[]).map((q, idx)=>{
@@ -498,7 +508,7 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                           <input placeholder="Prompt" style={{flex:1}} value={q.prompt||''} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], prompt: e.target.value}; return {...p, questions: qs} })} />
                           <input placeholder="Points" type="number" style={{width:88}} value={q.points||0} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], points: parseInt(e.target.value||0)}; return {...p, questions: qs} })} />
                         </div>
-                        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                           <label style={{margin:0}}>Type</label>
                           <select value={qtype} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); const newType = e.target.value; const defaultForms = ['1NF','2NF','3NF','BCNF','4NF','5NF'];
                             qs[idx] = {
@@ -526,7 +536,13 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                               {q.db_id && <button onClick={()=>{ const db = dbList.find(x=>String(x.id)===String(q.db_id)); openDbPreview(q.db_id, db?db.name:'' ) }} style={{marginLeft:6}}>Preview</button>}
                             </>
                           )}
-                          <button onClick={()=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs.splice(idx,1); return {...p, questions: qs} })} style={{marginLeft:'auto',background:'#e74c3c'}}>Remove</button>
+                          <div style={{flexBasis:'100%', display:'flex', gap:8, alignItems:'center', marginTop:6}}>
+                            <label style={{margin:0}}>Submission limit</label>
+                            <input type="number" min="0" style={{width:80}} value={(q.submission_limit===undefined || q.submission_limit===null) ? 0 : q.submission_limit} onChange={e=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs[idx] = {...qs[idx], submission_limit: parseInt(e.target.value||0)}; return {...p, questions: qs} })} />
+                          </div>
+                          <div style={{width:'100%', display:'flex', justifyContent:'flex-end', marginTop:6}}>
+                            <button onClick={()=>setModalPayload(p=>{ const qs = (p.questions||[]).slice(); qs.splice(idx,1); return {...p, questions: qs} })} style={{background:'#e74c3c'}}>Remove</button>
+                          </div>
                         </div>
                         {qtype === 'ra' ? (
                           <>

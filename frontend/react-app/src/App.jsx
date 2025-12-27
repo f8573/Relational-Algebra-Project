@@ -99,9 +99,12 @@ export default function App({ defaultShowAdmin = false }){
   const [showAdmin, setShowAdmin] = useState(defaultShowAdmin)
   const [output, setOutput] = useState('')
   const [history, setHistory] = useState(() => [])
+  const [sqlOutput, setSqlOutput] = useState('')
+  const [sqlHistory, setSqlHistory] = useState(() => [])
   const [selectedAssignment, setSelectedAssignment] = useState(null)
   const [assignmentQuestions, setAssignmentQuestions] = useState([])
   const [selectedQuestionId, setSelectedQuestionId] = useState(null)
+  const selectedQuestion = assignmentQuestions.find(q => q.id === selectedQuestionId)
   const [lastSubmissionResult, setLastSubmissionResult] = useState(null)
   const [normalizationAnswer, setNormalizationAnswer] = useState('')
   const [mcqAnswer, setMcqAnswer] = useState('')
@@ -203,6 +206,10 @@ export default function App({ defaultShowAdmin = false }){
     setMsqAnswers([])
     setFreeResponseAnswer('')
     setSqlAnswer('')
+    const curQ = assignmentQuestions.find(x => x.id === selectedQuestionId)
+    if (curQ?.question_type !== 'ra') setOutput('')
+    if (curQ?.question_type !== 'sql') setSqlOutput('')
+    setLastSubmissionResult(null)
   }, [selectedQuestionId])
 
   const handleRefreshSession = async () => {
@@ -631,39 +638,73 @@ export default function App({ defaultShowAdmin = false }){
             }
             
             if (qtype === 'sql') {
+              const q = assignmentQuestions.find(qq => qq.id === selectedQuestionId)
+              const submissionLimit = q?.submission_limit || 0
+              const submissionCount = q?.submission_count || 0
+              const remainingSubmissions = submissionLimit > 0 ? submissionLimit - submissionCount : null
+              const canSubmit = !submissionLimit || submissionCount < submissionLimit
               return (
                 <div style={{marginTop:12,maxWidth:1000}}>
                   <label style={{display:'block',fontSize:14,fontWeight:'bold',marginBottom:8}}>Write your SQL query:</label>
                   <SQLEditor value={sqlAnswer} onChange={setSqlAnswer} />
-                  <button
-                    onClick={async () => {
-                      if (!sqlAnswer.trim()) {
-                        alert('Please enter a SQL query')
-                        return
-                      }
-                      if (!selectedQuestionId) { alert('Select a question'); return }
-                      try {
-                        const payload = {
-                          user_id: user.id,
-                          assessment_id: selectedAssignment.id,
-                          question_id: selectedQuestionId,
-                          answer_payload: { sql: sqlAnswer }
+                  <div style={{display:'flex',gap:12,marginTop:12}}>
+                    <button
+                      onClick={async () => {
+                        if (!sqlAnswer.trim()) {
+                          alert('Please enter a SQL query')
+                          return
                         }
-                        const res = await api.submitAnswer(payload)
-                        if (res.ok && res.data) {
-                          setLastSubmissionResult(res.data.result || res.data)
-                          const qres = await api.getAssessmentQuestions(selectedAssignment.id)
-                          if (qres.ok && qres.data) { setAssignmentQuestions(qres.data.questions || []) }
-                          window.dispatchEvent(new Event('assignments:refresh'))
-                        } else {
-                          alert('Submit failed')
+                        try {
+                          const res = await fetch('/api/run/', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                            body: JSON.stringify({ query: sqlAnswer, is_sql: true })
+                          })
+                          const data = await res.json()
+                          if (res.ok) {
+                            setSqlOutput(data.output || '')
+                            setSqlHistory([...sqlHistory, { query: sqlAnswer, output: data.output || '', timestamp: new Date().toISOString() }])
+                          } else {
+                            setSqlOutput(data.error || 'Query failed')
+                          }
+                        } catch (e) { setSqlOutput(`Error: ${e.message}`); console.error('Run failed', e) }
+                      }}
+                      style={{padding:'8px 16px',background:'#558b2f',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}
+                    >
+                      Run Query
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!sqlAnswer.trim()) {
+                          alert('Please enter a SQL query')
+                          return
                         }
-                      } catch (e) { console.error('Submit failed', e); alert('Submit failed') }
-                    }}
-                    style={{marginTop:12,padding:'8px 16px',background:'#8348AD',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}
-                  >
-                    Submit Answer
-                  </button>
+                        if (!selectedQuestionId) { alert('Select a question'); return }
+                        if (!canSubmit) { alert(`Submission limit reached (${submissionLimit})`); return }
+                        try {
+                          const payload = {
+                            user_id: user.id,
+                            assessment_id: selectedAssignment.id,
+                            question_id: selectedQuestionId,
+                            answer_payload: { sql: sqlAnswer }
+                          }
+                          const res = await api.submitAnswer(payload)
+                          if (res.ok && res.data) {
+                            setLastSubmissionResult(res.data.result || res.data)
+                            const qres = await api.getAssessmentQuestions(selectedAssignment.id)
+                            if (qres.ok && qres.data) { setAssignmentQuestions(qres.data.questions || []) }
+                            window.dispatchEvent(new Event('assignments:refresh'))
+                          } else {
+                            alert('Submit failed')
+                          }
+                        } catch (e) { console.error('Submit failed', e); alert('Submit failed') }
+                      }}
+                      disabled={!canSubmit}
+                      style={{padding:'8px 16px',background:canSubmit?'#8348AD':'#ccc',color:'#fff',border:'none',borderRadius:4,cursor:canSubmit?'pointer':'not-allowed'}}
+                    >
+                      Submit Answer {remainingSubmissions !== null && `(${remainingSubmissions} left)`}
+                    </button>
+                  </div>
                 </div>
               )
             }
@@ -710,9 +751,20 @@ export default function App({ defaultShowAdmin = false }){
                     </div>
                   </div>
                 </div>
+              ) : lastSubmissionResult.feedback ? (
+                <div>
+                  <h5 style={{marginTop:0}}>Feedback</h5>
+                  {lastSubmissionResult.feedback.map((f, i) => (
+                    <div key={i} style={{marginBottom:6,padding:6,background:'#f5f5f5',borderRadius:4}}>
+                      {Object.entries(f).map(([k, v]) => (
+                        <div key={k}><strong>{k}:</strong> {String(v)}</div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               ) : (
-                <div>No comparison available. Feedback:
-                  <pre style={{background:'#fff',padding:8,borderRadius:4,whiteSpace:'pre-wrap'}}>{JSON.stringify(lastSubmissionResult.feedback||lastSubmissionResult,null,2)}</pre>
+                <div>
+                  <pre style={{background:'#fff',padding:8,borderRadius:4,whiteSpace:'pre-wrap'}}>{JSON.stringify(lastSubmissionResult,null,2)}</pre>
                 </div>
               )}
             </div>
@@ -730,10 +782,16 @@ export default function App({ defaultShowAdmin = false }){
 
       <div className="below">
         <div className="center results">
-          <Results output={output} />
+          {selectedQuestion?.question_type === 'sql' ? 
+            <Results output={sqlOutput} /> :
+            <Results output={output} />
+          }
         </div>
         <div className="right history">
-          <History items={history} onLoad={handleHistoryLoad} />
+          {selectedQuestion?.question_type === 'sql' ? 
+            <History items={sqlHistory} onLoad={(item)=>setSqlAnswer(item.query)} /> :
+            <History items={history} onLoad={handleHistoryLoad} />
+          }
         </div>
       </div>
     </div>

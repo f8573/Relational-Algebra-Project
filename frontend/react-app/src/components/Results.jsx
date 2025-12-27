@@ -358,6 +358,7 @@ export default function Results({ output }){
   }, [])
 
   let parsed = null
+  const isError = typeof output === 'string' && (/^Error:|^Server error|SQL error|database|syntax/i.test(output))
   if (typeof output === 'string'){
     try{ parsed = JSON.parse(output) }catch(e){ parsed = output }
   } else {
@@ -369,6 +370,11 @@ export default function Results({ output }){
       <h3>Output</h3>
       {parsed ? (
         (()=>{
+          // Do not render as table if output contains error messages
+          if (isError) {
+            if (typeof parsed === 'object') return <pre style={{whiteSpace:'pre-wrap',color:'#d32f2f'}}>{JSON.stringify(parsed, null, 2)}</pre>
+            return <pre style={{whiteSpace:'pre-wrap',color:'#d32f2f'}}>{String(parsed)}</pre>
+          }
           const table = detectAndBuildTable(parsed)
           if (table) return <TableRenderer table={table} />
           if (typeof parsed === 'object') return <pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(parsed, null, 2)}</pre>

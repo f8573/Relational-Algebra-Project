@@ -146,47 +146,85 @@ def public_course_assignments(course_id):
         percent = None
         letter = None
         try:
-            # Use a window function to select the latest submission per question
-            # for this user & assessment. This avoids relying on ORM ordering
-            # and is efficient in SQL.
-            from sqlalchemy import text
-            sql = text('''
-                SELECT question_id, score_earned FROM (
-                  SELECT s.question_id, s.score_earned,
-                         row_number() OVER (PARTITION BY s.question_id ORDER BY s.last_updated DESC) as rn
-                  FROM submissions s
-                  JOIN attempts at ON s.attempt_id = at.id
-                  WHERE at.user_id = :uid AND at.assessment_id = :aid
-                ) t WHERE rn = 1
-            ''')
-            rows = db.session.execute(sql, {'uid': user.id, 'aid': a.id}).fetchall()
-            # map question_id -> score
-            latest_by_q = { int(r[0]): float(r[1] or 0.0) for r in rows }
-            
-            # Load ALL questions for this assessment to properly weight the grade
-            q_rows = Question.query.filter(Question.assessment_id == a.id).all()
+            # Simpler: for each question, fetch the latest submission for
+            # this user (if any) and compute the per-question percent.
+            # Then average only across questions that have at least one
+            # submission (graded questions).
+            try:
+                q_rows = Question.query.filter(Question.assessment_id == a.id).all()
+            except Exception:
+                # Older DB schemas may lack newer Question columns; select
+                # only the minimal columns we need (id, points) via raw SQL
+                from sqlalchemy import text
+                q_rows = []
+                try:
+                    res = db.session.execute(text("SELECT id, points FROM questions WHERE assessment_id = :aid ORDER BY id"), {'aid': a.id})
+                    for r in res.fetchall():
+                        # build a lightweight object with id and points attrs
+                        class _Q:
+                            pass
+                        q = _Q()
+                        try:
+                            m = r._mapping
+                            q.id = m.get('id')
+                            q.points = m.get('points')
+                        except Exception:
+                            vals = list(r)
+                            q.id = vals[0]
+                            q.points = vals[1] if len(vals) > 1 else None
+                        q_rows.append(q)
+                except Exception:
+                    current_app.logger.exception('Failed raw-selecting questions for assignment %s during percent calc', a.id)
+                    q_rows = []
             if q_rows:
                 pct_sum = 0.0
                 pct_count = 0
                 for q in q_rows:
-                    qid = int(getattr(q, 'id', 0) or 0)
-                    qpoints = getattr(q, 'points', None)
-                    if qpoints and float(qpoints) > 0:
-                        # Only include this question if the user has at least
-                        # one submission for it — do not count unanswered
-                        # questions as zero in the average.
-                        if qid in latest_by_q:
-                            score = float(latest_by_q.get(qid, 0.0))
+                    try:
+                        qid = int(getattr(q, 'id', 0) or 0)
+                        qpoints = getattr(q, 'points', None)
+                        if qid is None or not qpoints or float(qpoints) <= 0:
+                            continue
+                        # latest submission for this user & question
+                        sub = None
+                        try:
+                            sub = Submission.query.join(Attempt).filter(
+                                Attempt.user_id == user.id,
+                                Submission.question_id == qid
+                            ).order_by(Submission.last_updated.desc()).first()
+                        except Exception:
+                            sub = None
+                        if sub and sub.score_earned is not None:
+                            score = float(sub.score_earned or 0.0)
                             pct = (score / float(qpoints)) * 100.0
                             pct_sum += pct
                             pct_count += 1
+                    except Exception:
+                        # skip problematic question rows but keep processing
+                        current_app.logger.exception('Error processing question %s for percent calc', getattr(q, 'id', None))
                 if pct_count > 0:
                     percent = pct_sum / float(pct_count)
+                else:
+                    percent = None
             else:
                 percent = None
         except Exception:
             current_app.logger.exception('Failed computing per-question latest scores for assignment %s user %s', a.id, user.id)
             percent = None
+        label = None
+        # If we couldn't compute per-question percent (no per-question
+        # submissions found), fall back to latest attempt.total_score
+        # divided by total_points so instructors still see a grade in
+        # environments where questions/submissions mapping may differ.
+        if percent is None and total_points and total_points > 0:
+            try:
+                latest_attempt = Attempt.query.filter_by(assessment_id=a.id, user_id=user.id).order_by(Attempt.submitted_at.desc()).first()
+                if latest_attempt and latest_attempt.total_score is not None:
+                    percent = (float(latest_attempt.total_score) / float(total_points)) * 100.0
+            except Exception:
+                percent = None
+        # Compute letter grade from percent if available
+        if percent is not None:
             p = percent
             if p >= 93: letter = 'A'
             elif p >= 90: letter = 'A-'
@@ -200,20 +238,6 @@ def public_course_assignments(course_id):
             elif p >= 63: letter = 'D'
             elif p >= 60: letter = 'D-'
             else: letter = 'F'
-        label = None
-        # If we couldn't compute per-question percent (no per-question
-        # submissions found), fall back to latest attempt.total_score
-        # divided by total_points so instructors still see a grade in
-        # environments where questions/submissions mapping may differ.
-        if percent is None and total_points and total_points > 0:
-            try:
-                latest_attempt = Attempt.query.filter_by(assessment_id=a.id, user_id=user.id).order_by(Attempt.submitted_at.desc()).first()
-                if latest_attempt and latest_attempt.total_score is not None:
-                    percent = (float(latest_attempt.total_score) / float(total_points)) * 100.0
-            except Exception:
-                percent = None
-
-        if letter is not None and percent is not None:
             label = f"{letter} ({round(percent)}%)"
         out.append({
             'id': a.id,

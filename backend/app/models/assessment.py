@@ -74,6 +74,8 @@ class Question(db.Model):
     # Store choices/options and grading keys as JSON for non-RA types
     options_json = db.Column(db.JSON, default={})
     answer_key_json = db.Column(db.JSON, default={})
+    # Submission limit: 0 = unlimited, >0 = max submissions allowed
+    submission_limit = db.Column(db.Integer, default=0)
 
     database = db.relationship('DatabaseFile')
 
