@@ -8,6 +8,7 @@ from app.models.user import CourseMembership as CourseMembershipModel
 from app.models.assessment import Assessment, Question
 from app.models.submission import Attempt, Submission
 from sqlalchemy import func
+import random
 
 bp = Blueprint("courses", __name__)
 
@@ -239,6 +240,38 @@ def public_course_assignments(course_id):
             elif p >= 60: letter = 'D-'
             else: letter = 'F'
             label = f"{letter} ({round(percent)}%)"
+        # compute curved score if enabled: use empirical CDF to map raw percent
+        curved_percent = None
+        try:
+            if getattr(a, 'curve_enabled', False) and percent is not None:
+                # Build distribution of student percents for this assessment
+                attempts = Attempt.query.filter_by(assessment_id=a.id).all()
+                raw_percents = []
+                for at in attempts:
+                    if at.total_score is None:
+                        continue
+                    if total_points and total_points > 0:
+                        raw_percents.append(float(at.total_score) / float(total_points))
+                if len(raw_percents) > 0:
+                    # compute empirical CDF value for current user
+                    cur_raw = (percent / 100.0)
+                    less_equal = sum(1 for v in raw_percents if v <= cur_raw)
+                    p = float(less_equal) / float(len(raw_percents))
+                    # approximate beta PPF using Monte-Carlo sampling
+                    alpha = float(getattr(a, 'curve_alpha', 5.0) or 5.0)
+                    beta = float(getattr(a, 'curve_beta', 2.0) or 2.0)
+                    target_med = float(getattr(a, 'curve_target_median', 0.75) or 0.75)
+                    SAMPLES = 5000
+                    samples = sorted([random.betavariate(alpha, beta) for _ in range(SAMPLES)])
+                    idx = min(int(p * (SAMPLES - 1)), SAMPLES - 1)
+                    raw_q = samples[idx]
+                    med_q = samples[int(0.5 * (SAMPLES - 1))]
+                    scale = (target_med / med_q) if med_q > 0 else 1.0
+                    adj = min(1.0, raw_q * scale)
+                    curved_percent = float(adj * 100.0)
+        except Exception:
+            current_app.logger.exception('Failed computing curved percent for assignment %s', a.id)
+
         out.append({
             'id': a.id,
             'title': a.title,
@@ -246,6 +279,7 @@ def public_course_assignments(course_id):
             'total_points': total_points,
             'user_grade': label,
             'percent': percent,
+            'curved_percent': curved_percent,
             'letter': letter,
         })
 

@@ -32,6 +32,11 @@ class Assessment(db.Model):
     exam_mode = db.Column(db.Boolean, default=False)
     time_limit_minutes = db.Column(db.Integer, nullable=True)
     max_attempts = db.Column(db.Integer, nullable=True)
+    # Optional grading curve configuration
+    curve_enabled = db.Column(db.Boolean, default=False)
+    curve_alpha = db.Column(db.Float, default=5.0)
+    curve_beta = db.Column(db.Float, default=2.0)
+    curve_target_median = db.Column(db.Float, default=0.75)
 
     course = db.relationship('Course', back_populates='assessments')
     questions = db.relationship(

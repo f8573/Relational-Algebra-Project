@@ -146,7 +146,7 @@ def admin_course_assignments(course_id):
                         qs.append({'id': vals[0], 'prompt': vals[1], 'points': vals[2], 'db_id': vals[3] if len(vals) > 3 else None, 'solution_query': vals[4] if len(vals) > 4 else None, 'question_type': 'ra', 'options_json': None, 'answer_key_json': None, 'submission_limit': vals[5] if len(vals) > 5 else 0})
             except Exception:
                 current_app.logger.exception('Failed to load questions for assessment %s', a.id)
-        out.append({'id': a.id, 'title': a.title, 'questions': qs})
+        out.append({'id': a.id, 'title': a.title, 'questions': qs, 'curve_enabled': bool(getattr(a, 'curve_enabled', False)), 'curve_alpha': float(getattr(a, 'curve_alpha', 5.0) or 5.0), 'curve_beta': float(getattr(a, 'curve_beta', 2.0) or 2.0), 'curve_target_median': float(getattr(a, 'curve_target_median', 0.75) or 0.75)})
     return jsonify({'status': 'success', 'assignments': out}), 200
 
 
@@ -310,7 +310,7 @@ def admin_create_assignment(course_id):
     title = data.get('title')
     if not title:
         return jsonify({'status': 'error', 'message': 'title is required'}), 400
-    assignment = Assessment(title=title, course_id=course_id, type=data.get('type', 'assignment'), time_limit_minutes=data.get('time_limit_minutes'))
+    assignment = Assessment(title=title, course_id=course_id, type=data.get('type', 'assignment'), time_limit_minutes=data.get('time_limit_minutes'), curve_enabled=bool(data.get('curve_enabled', False)), curve_alpha=float(data.get('curve_alpha') or 5.0), curve_beta=float(data.get('curve_beta') or 2.0), curve_target_median=float(data.get('curve_target_median') or 0.75))
     db.session.add(assignment)
     db.session.flush()
     # Optionally create questions if provided
@@ -468,6 +468,24 @@ def admin_update_assignment(assignment_id):
     assignment.title = data.get('title', assignment.title)
     assignment.type = data.get('type', assignment.type)
     assignment.time_limit_minutes = data.get('time_limit_minutes', assignment.time_limit_minutes)
+    # curve fields
+    if 'curve_enabled' in data:
+        assignment.curve_enabled = bool(data.get('curve_enabled'))
+    if 'curve_alpha' in data:
+        try:
+            assignment.curve_alpha = float(data.get('curve_alpha') or 5.0)
+        except Exception:
+            pass
+    if 'curve_beta' in data:
+        try:
+            assignment.curve_beta = float(data.get('curve_beta') or 2.0)
+        except Exception:
+            pass
+    if 'curve_target_median' in data:
+        try:
+            assignment.curve_target_median = float(data.get('curve_target_median') or 0.75)
+        except Exception:
+            pass
     # If questions provided, replace existing questions safely
     if 'questions' in data:
         questions = data.get('questions') or []

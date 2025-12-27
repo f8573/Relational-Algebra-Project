@@ -164,7 +164,7 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                 answer_key_json: q.answer_key_json || {},
                 submission_limit: q.submission_limit || 0
               }))
-              setModalPayload(p=>({...p, questions, type: found.type || 'assignment', time_limit_minutes: found.time_limit_minutes || null }))
+              setModalPayload(p=>({...p, questions, type: found.type || 'assignment', time_limit_minutes: found.time_limit_minutes || null, curve_enabled: found.curve_enabled || false, curve_alpha: found.curve_alpha || 5.0, curve_beta: found.curve_beta || 2.0, curve_target_median: found.curve_target_median || 0.75 }))
             // Initialize FD text map
             const newFdMap = {}
             questions.forEach((q, idx) => {
@@ -256,7 +256,7 @@ export default function AdminDashboard({ onClose, fullPage = false }){
             </div>
           )}
           <div style={{marginBottom:8}}>
-            {selectedCourse && <button onClick={()=>{ setModalMode('createAssignment'); setModalPayload({ title: '', questions: [], type: 'assignment', time_limit_minutes: null }); setFdTextMap({}); setModalOpen(true); refreshDbList() }} style={{width:'100%'}}>New Assignment</button>}
+            {selectedCourse && <button onClick={()=>{ setModalMode('createAssignment'); setModalPayload({ title: '', questions: [], type: 'assignment', time_limit_minutes: null, curve_enabled: false, curve_alpha: 5.0, curve_beta: 2.0, curve_target_median: 0.75 }); setFdTextMap({}); setModalOpen(true); refreshDbList() }} style={{width:'100%'}}>New Assignment</button>}
           </div>
           <ul>
             {assignments.map(a=> (
@@ -335,12 +335,12 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                 await submitCourseModal()
                   } else if (modalMode==='createAssignment'){
                     const t = (modalPayload.title||'').trim(); if (!t){ alert('Title required'); return }
-                    const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null }
+                    const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null, curve_enabled: !!modalPayload.curve_enabled, curve_alpha: modalPayload.curve_alpha, curve_beta: modalPayload.curve_beta, curve_target_median: modalPayload.curve_target_median }
                     const res = await admin.createAssignment(selectedCourse.id, payload)
                     if (res.ok) { loadAssignments(selectedCourse.id); setModalOpen(false) } else alert('Create failed')
               } else if (modalMode==='editAssignment'){
                 const t = (modalPayload.title||'').trim(); if (!t){ alert('Title required'); return }
-                const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null }
+                const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null, curve_enabled: !!modalPayload.curve_enabled, curve_alpha: modalPayload.curve_alpha, curve_beta: modalPayload.curve_beta, curve_target_median: modalPayload.curve_target_median }
                 const res = await admin.updateAssignment(modalPayload.id, payload)
                 if (res.ok) { loadAssignments(modalPayload.courseId); setModalOpen(false) } else alert('Update failed')
               } else if (modalMode==='enrollMember'){
@@ -496,6 +496,21 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                   <div style={{marginTop:8}}>
                     <label>Time limit (minutes, optional)</label>
                     <input type="number" min="0" value={modalPayload.time_limit_minutes || ''} onChange={e=>setModalPayload(p=>({...p, time_limit_minutes: e.target.value ? parseInt(e.target.value) : null}))} />
+                  </div>
+                  <div style={{marginTop:8,borderTop:'1px dashed #eee',paddingTop:8}}>
+                    <label style={{display:'inline-flex',alignItems:'center',gap:8}}>
+                      <input type="checkbox" checked={!!modalPayload.curve_enabled} onChange={e=>setModalPayload(p=>({...p, curve_enabled: !!e.target.checked}))} /> Enable curve
+                    </label>
+                    {modalPayload.curve_enabled && (
+                      <div style={{display:'flex',gap:8,alignItems:'center',marginTop:8}}>
+                        <label style={{margin:0}}>Alpha</label>
+                        <input type="number" step="0.1" min="0.1" value={modalPayload.curve_alpha || 5.0} onChange={e=>setModalPayload(p=>({...p, curve_alpha: parseFloat(e.target.value||0) }))} style={{width:88}} />
+                        <label style={{margin:0}}>Beta</label>
+                        <input type="number" step="0.1" min="0.1" value={modalPayload.curve_beta || 2.0} onChange={e=>setModalPayload(p=>({...p, curve_beta: parseFloat(e.target.value||0) }))} style={{width:88}} />
+                        <label style={{margin:0}}>Target median (0-1)</label>
+                        <input type="number" step="0.01" min="0" max="1" value={modalPayload.curve_target_median || 0.75} onChange={e=>setModalPayload(p=>({...p, curve_target_median: parseFloat(e.target.value||0) }))} style={{width:100}} />
+                      </div>
+                    )}
                   </div>
                 
                   <label>Questions</label>
