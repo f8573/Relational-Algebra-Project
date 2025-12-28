@@ -7,7 +7,8 @@ from werkzeug.utils import secure_filename
 import os
 from flask import current_app
 import sqlite3
-from sqlalchemy import text
+from sqlalchemy import text, func
+import statistics
 
 bp = Blueprint('admin', __name__)
 
@@ -571,3 +572,61 @@ def admin_update_question(question_id):
     db.session.add(q)
     db.session.commit()
     return jsonify({'status': 'success', 'question': {'id': q.id, 'solution_query': q.solution_query}}), 200
+
+
+@bp.route('/assignments/<int:assessment_id>/grades', methods=['GET'])
+@verify_token
+def admin_assignment_grades(assessment_id):
+    resp = require_platform_admin()
+    if resp:
+        return resp
+    # Load questions to determine total points
+    questions = Question.query.filter_by(assessment_id=assessment_id).all()
+    total_points = sum((q.points or 0) for q in questions)
+
+    # Per-question averages
+    per_question = []
+    for q in questions:
+        avg = db.session.query(func.avg(Submission.score_earned)).filter(Submission.question_id == q.id).scalar()
+        per_question.append({'question_id': q.id, 'points': q.points, 'avg_score': float(avg) if avg is not None else 0.0})
+
+    # Per-student totals (one attempt per student expected)
+    attempts = Attempt.query.filter_by(assessment_id=assessment_id).all()
+    student_rows = []
+    scores = []
+    for a in attempts:
+        total = 0.0
+        for s in a.submissions:
+            try:
+                total += float(s.score_earned or 0.0)
+            except Exception:
+                pass
+        pct = (total / total_points * 100.0) if total_points > 0 else None
+        student_rows.append({'student_id': a.user_id, 'attempt_id': a.id, 'score': total, 'percent': pct})
+        if pct is not None:
+            scores.append(pct)
+
+    # Compute basic statistics
+    stats = {'count': len(scores), 'min': None, 'max': None, 'mean': None, 'median': None, 'stddev': None}
+    if scores:
+        try:
+            stats['min'] = min(scores)
+            stats['max'] = max(scores)
+            stats['mean'] = statistics.mean(scores)
+            stats['median'] = statistics.median(scores)
+            stats['stddev'] = statistics.pstdev(scores) if len(scores) > 0 else 0.0
+        except Exception:
+            pass
+
+    # Histogram into 10 buckets (0-10%, 10-20%, ..., 90-100%)
+    buckets = [0] * 10
+    for p in scores:
+        idx = int(p // 10)
+        if idx < 0:
+            idx = 0
+        if idx > 9:
+            idx = 9
+        buckets[idx] += 1
+    labels = [f"{i*10}-{i*10+10}%" for i in range(10)]
+
+    return jsonify({'status': 'success', 'total_points': total_points, 'per_question': per_question, 'students': student_rows, 'stats': stats, 'histogram': {'buckets': buckets, 'labels': labels}}), 200

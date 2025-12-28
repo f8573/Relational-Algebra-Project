@@ -84,6 +84,7 @@ export const admin = {
   listCourses: () => getJSON('/admin/courses'),
   getCourseAssignments: (courseId) => getJSON(`/admin/courses/${courseId}/assignments`),
   getAssignmentSubmissions: (assignmentId) => getJSON(`/admin/assignments/${assignmentId}/submissions`),
+  getAssignmentGrades: (assignmentId) => getJSON(`/admin/assignments/${assignmentId}/grades`),
   gradeSubmission: (submissionId, payload) => postJSON(`/admin/submissions/${submissionId}/grade`, payload)
 }
 
