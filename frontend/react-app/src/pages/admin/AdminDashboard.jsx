@@ -9,6 +9,7 @@ export default function AdminDashboard({ onClose, fullPage = false }){
   const [selectedAssignment, setSelectedAssignment] = useState(null)
   const [submissions, setSubmissions] = useState([])
   const [members, setMembers] = useState([])
+  const [membersCollapsed, setMembersCollapsed] = useState({})
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState(null)
   const [modalPrevMode, setModalPrevMode] = useState(null)
@@ -186,7 +187,13 @@ export default function AdminDashboard({ onClose, fullPage = false }){
 
   const loadMembers = async (courseId)=>{
     const res = await admin.getCourseMembers(courseId)
-    if (res.ok && res.data) setMembers(res.data.members)
+    if (res.ok && res.data) {
+      setMembers(res.data.members)
+      try{
+        const count = (res.data.members||[]).length
+        setMembersCollapsed(prev => ({ ...prev, [courseId]: count > 5 }))
+      }catch(e){}
+    }
   }
 
   // search users when enroll modal is open and searchQuery changes
@@ -242,17 +249,34 @@ export default function AdminDashboard({ onClose, fullPage = false }){
               <div style={{marginTop:6,marginBottom:6}}>
                 <button onClick={()=>{ setModalMode('enrollMember'); setModalPayload({ email: '', role: 'student' }); setSearchQuery(''); setSearchResults([]); setSelectedUser(null); setModalOpen(true) }} style={{width:'100%'}}>Enroll Student</button>
               </div>
-              <ul style={{marginTop:6,marginBottom:6}}>
-                {members.map(m => (
-                  <li key={m.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0'}}>
-                    <div>{m.name || m.email} — <small style={{color:'#666'}}>{m.role}</small></div>
-                    <div>
-                      <button onClick={()=>{ setModalMode('changeRole'); setModalPayload({ userId: m.id, role: m.role }); setModalOpen(true) }} style={{marginRight:8}}>Change</button>
-                      <button onClick={()=>{ setModalMode('confirmRemoveMember'); setModalPayload({ userId: m.id, userName: m.name || m.email }); setModalOpen(true) }} style={{background:'#e74c3c'}}>Remove</button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              {(() => {
+                const visibleCount = 5
+                const courseId = selectedCourse?.id
+                const isCollapsed = !!membersCollapsed[courseId] && members.length > visibleCount
+                const visibleMembers = isCollapsed ? members.slice(0, visibleCount) : members
+                return (
+                  <>
+                    <ul style={{marginTop:6,marginBottom:6}}>
+                      {visibleMembers.map(m => (
+                        <li key={m.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0'}}>
+                          <div>{m.name || m.email} — <small style={{color:'#666'}}>{m.role}</small></div>
+                          <div>
+                            <button onClick={()=>{ setModalMode('changeRole'); setModalPayload({ userId: m.id, role: m.role }); setModalOpen(true) }} style={{marginRight:8}}>Change</button>
+                            <button onClick={()=>{ setModalMode('confirmRemoveMember'); setModalPayload({ userId: m.id, userName: m.name || m.email }); setModalOpen(true) }} style={{background:'#e74c3c'}}>Remove</button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    {members.length > visibleCount && (
+                      <div style={{marginTop:6}}>
+                        <button onClick={()=>{ const cid = selectedCourse?.id; if (!cid) return; setMembersCollapsed(prev => ({ ...prev, [cid]: !prev[cid] })) }}>
+                          {isCollapsed ? `Show ${members.length - visibleCount} more` : 'Hide'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           )}
           <div style={{marginBottom:8}}>
