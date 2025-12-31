@@ -32,6 +32,12 @@ convention (e.g., `/api/run`, `/api/assessments`).
     `QuestionTestCase` DB fixtures, awarding milestone partial credit.
   - Behavior: updates `submission.score_earned`, `submission.grading_feedback`,
     and `submission.last_updated` and commits to the DB.
+  - RA partial-credit: for `ra`-type questions the grader now mirrors the
+    SQL grading semantics — an exact textual match of `solution_query` and
+    `student_query` yields full credit; if the executed outputs contain the
+    same rows but differ only in column ordering or minor formatting the
+    grader awards partial credit (0.5 of question points). Milestone-based
+    partial credit via `QuestionMilestone` still applies per-testcase.
 
 ## HTTP Endpoints (expanded)
 

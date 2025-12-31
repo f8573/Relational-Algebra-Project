@@ -266,6 +266,101 @@ def _compare_sql_results(student_result: str, expected_result: str) -> Tuple[str
     except Exception:
         return ('none', 0.0)
 
+
+def _normalize_ra_result(result_str: str) -> List[Tuple]:
+    """Try to parse RA executor output into headers and rows.
+
+    The radb output can vary (table-like with | separators, or
+    whitespace-separated columns). This function attempts a best-effort
+    parse: detect a header row, split columns, and return a sorted list
+    of row tuples with columns ordered by header name.
+    """
+    if not result_str or not isinstance(result_str, str):
+        return []
+
+    lines = [l for l in (x.strip() for x in result_str.split('\n')) if l]
+    if not lines:
+        return []
+
+    # Heuristic: if first line contains '|' treat it as header with '|' separators
+    header_line = lines[0]
+    if '|' in header_line:
+        sep = '|'
+        headers = [h.strip() for h in header_line.split(sep) if h.strip()]
+        data_lines = lines[1:]
+        rows = []
+        for line in data_lines:
+            parts = [p.strip() for p in line.split(sep)]
+            if not parts:
+                continue
+            # Align values to headers if lengths match
+            if len(parts) == len(headers):
+                row_dict = dict(zip(headers, parts))
+            else:
+                # Fallback: split by whitespace
+                vals = [v for v in re.split(r"\s+", line) if v]
+                row_dict = dict(zip(headers, vals))
+            normalized = tuple(row_dict.get(h, '') for h in sorted(headers))
+            rows.append(normalized)
+        rows.sort()
+        return rows
+
+    # Otherwise, try comma-separated (CSV-like) or whitespace-separated
+    # If first line contains commas and second line does too, treat as CSV
+    if ',' in header_line and len(lines) > 1 and ',' in lines[1]:
+        try:
+            headers = [h.strip() for h in header_line.split(',')]
+            rows = []
+            for line in lines[1:]:
+                if not line:
+                    continue
+                values = [v.strip() for v in line.split(',')]
+                if len(values) == len(headers):
+                    row_dict = dict(zip(headers, values))
+                else:
+                    row_dict = dict(zip(headers, values + [''] * (len(headers) - len(values))))
+                normalized = tuple(row_dict.get(h, '') for h in sorted(headers))
+                rows.append(normalized)
+            rows.sort()
+            return rows
+        except Exception:
+            return []
+
+    # As a last resort, treat each line as a single-column row
+    rows = [(l,) for l in lines]
+    rows.sort()
+    return rows
+
+
+def _compare_ra_results(student_result: str, expected_result: str) -> Tuple[str, float]:
+    """Compare RA outputs similar to SQL comparator.
+
+    - Full credit (1.0): exact same text output
+    - Partial credit (0.5): same rows (after normalization), possibly in
+      different column order or minor formatting differences
+    - No credit (0.0): otherwise
+    """
+    # Exact textual match -> full
+    try:
+        if isinstance(student_result, str) and isinstance(expected_result, str):
+            if student_result.strip() == expected_result.strip():
+                return ('full', 1.0)
+
+        # Normalize both and compare tuple lists
+        stu_norm = _normalize_ra_result(student_result)
+        exp_norm = _normalize_ra_result(expected_result)
+
+        if not stu_norm or not exp_norm:
+            return ('none', 0.0)
+
+        # If same number of rows and exact tuple-by-tuple equality -> partial (columns reordered)
+        if len(stu_norm) == len(exp_norm) and stu_norm == exp_norm:
+            return ('partial', 0.5)
+
+        return ('none', 0.0)
+    except Exception:
+        return ('none', 0.0)
+
 def grade_submission(submission: Submission) -> Dict:
     """Grades a single Submission record and updates it with score/feedback.
 
@@ -697,8 +792,9 @@ def grade_submission(submission: Submission) -> Dict:
             db.session.commit()
             return {'score': submission.score_earned, 'feedback': feedback, 'comparison': {'solution_output': sol_out, 'student_output': stu_out, 'match': False}}
 
-        if _compare_results(sol_out, stu_out):
-            # full credit
+        # Use RA-aware comparison with partial-credit semantics
+        grade_type, fraction = _compare_ra_results(stu_out, sol_out)
+        if grade_type == 'full':
             submission.score_earned = float(question.points or 0)
             feedback.append({'result': 'match', 'explanation': 'Student query matches solution_query'})
             submission.grading_feedback = {'feedback': feedback}
@@ -706,6 +802,15 @@ def grade_submission(submission: Submission) -> Dict:
             db.session.add(submission)
             db.session.commit()
             return {'score': submission.score_earned, 'feedback': feedback, 'comparison': {'solution_output': sol_out, 'student_output': stu_out, 'match': True}}
+        elif grade_type == 'partial':
+            pts = (question.points or 0) * fraction
+            submission.score_earned = float(pts)
+            feedback.append({'result': 'partial', 'explanation': 'partial match', 'fraction': fraction})
+            submission.grading_feedback = {'feedback': feedback}
+            submission.last_updated = db.func.now()
+            db.session.add(submission)
+            db.session.commit()
+            return {'score': submission.score_earned, 'feedback': feedback, 'comparison': {'solution_output': sol_out, 'student_output': stu_out, 'match': False}}
         # else fall through to testcase/milestone grading
 
     total_weight = sum((tc.weight or 1.0) for tc in testcases) or 1.0
@@ -733,9 +838,14 @@ def grade_submission(submission: Submission) -> Dict:
             # no credit for this testcase
             continue
 
-        if _compare_results(sol_out, stu_out):
+        grade_type, fraction = _compare_ra_results(stu_out, sol_out)
+        if grade_type == 'full':
             earned += (tc.weight or 1.0)
             feedback.append({"tc": tc.id, "result": "pass"})
+        elif grade_type == 'partial':
+            frac = float(fraction)
+            earned += (tc.weight or 1.0) * frac
+            feedback.append({"tc": tc.id, "result": "partial", "fraction": frac})
         else:
             # Check milestones for partial credit. Milestone `points` are
             # stored as raw points (out of `question.points`). We must
