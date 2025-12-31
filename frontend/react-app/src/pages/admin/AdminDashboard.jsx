@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import api, { admin } from '../../lib/api'
+import { fitBetaToCounts } from '../../utils/gradeCurve'
 import Modal from '../../components/Modal'
+import GradeDistributionPopup from '../../components/GradeDistributionPopup'
 
 export default function AdminDashboard({ onClose, fullPage = false }){
   const [courses, setCourses] = useState([])
@@ -26,6 +28,66 @@ export default function AdminDashboard({ onClose, fullPage = false }){
   const [dbPreviewName, setDbPreviewName] = useState('')
   const [modalError, setModalError] = useState('')
   const [fdTextMap, setFdTextMap] = useState({})
+  const [gradePopupOpen, setGradePopupOpen] = useState(false)
+  const [gradeScores, setGradeScores] = useState([])
+  const [gradeLoading, setGradeLoading] = useState(false)
+  const [curveBuilderOpen, setCurveBuilderOpen] = useState(false)
+  const [curveBuilderScores, setCurveBuilderScores] = useState([])
+
+  // Helper: from a list of submission objects, produce one numeric score per
+  // student (assignment-level). We pick the highest numeric score per student
+  // to represent that student's assignment result. Falls back to submission
+  // score values when student id not present.
+  const extractAssignmentScores = (subs=[]) => {
+    if (!Array.isArray(subs) || subs.length === 0) return []
+    // group by student_id when available
+    const byStudent = new Map()
+    for (const s of subs){
+      const sid = s.student_id ?? s.student_name ?? s.submission_id ?? null
+      const sc = (s.score === undefined || s.score === null || Number.isNaN(Number(s.score))) ? null : Number(s.score)
+      if (sid === null){ // fallback: collect raw scores
+        if (sc !== null) byStudent.set(s.submission_id || Math.random(), sc)
+        continue
+      }
+      const cur = byStudent.get(sid)
+      if (cur === undefined || cur === null){
+        if (sc !== null) byStudent.set(sid, sc)
+      } else {
+        // keep the higher score (more representative of final submission)
+        if (sc !== null && sc > cur) byStudent.set(sid, sc)
+      }
+    }
+    return Array.from(byStudent.values()).filter(v => v !== null && v !== undefined)
+  }
+
+  // Regenerate grading_curve in `modalPayload` based on aggregated scores.
+  // For `gpa_targeted` we fit a Beta(a,b) to the dataset counts; for explicit
+  // `beta` we ensure numeric params. Returns the new grading_curve object.
+  const regenerateModalGradingCurve = (scores = []) => {
+    const gc = (modalPayload && modalPayload.grading_curve) ? { ...modalPayload.grading_curve } : { type: 'raw', params: {} }
+    const params = gc.params || {}
+    const n = Array.isArray(scores) ? scores.length : 0
+    try{
+      if (gc.type === 'gpa_targeted'){
+        const topPct = Number(params.top_pct || params.topPct || 90)
+        const bottomPct = Number(params.bottom_pct || params.bottomPct || 10)
+        const meanArg = (params.average_pct !== undefined) ? Number(params.average_pct) : (params.mean || null)
+        if (n > 0){
+          const [aFit, bFit] = fitBetaToCounts(topPct, bottomPct, n, meanArg, null, 10001)
+          // convert to a saved beta curve so subsequent preview uses concrete a/b
+          return { type: 'beta', params: { alpha: Number(aFit), beta: Number(bFit), source: 'fitted_from_gpa' } }
+        }
+      }
+      if (gc.type === 'beta'){
+        // ensure numeric alpha/beta
+        const a = Number(params.alpha || params.alpha || 0) || Number(modalPayload.curve_alpha) || 2
+        const b = Number(params.beta || params.beta || 0) || Number(modalPayload.curve_beta) || 5
+        return { type: 'beta', params: { alpha: a, beta: b } }
+      }
+    }catch(e){ console.warn('Failed to regenerate grading curve', e) }
+    // default: return original
+    return gc
+  }
 
   const computeModalValidation = () => {
     if (modalMode === 'editQuestion'){
@@ -287,6 +349,19 @@ export default function AdminDashboard({ onClose, fullPage = false }){
               <li key={a.id} style={{display:'flex',gap:8,alignItems:'center'}}>
                 <button style={{flex:1,textAlign:'left'}} onClick={()=>{setSelectedAssignment(a); loadSubmissions(a.id)}}>{a.title}</button>
                 <button onClick={async ()=>{ setModalMode('editAssignment'); setModalPayload({ id: a.id, title: a.title, courseId: selectedCourse?.id, questions: [] }); setModalOpen(true); await refreshDbList(); await loadAssignmentQuestions(a.id) }} style={{marginLeft:6}}>Edit</button>
+                <button onClick={async ()=>{
+                  try{
+                    const res = await admin.getAssignmentSubmissions(a.id)
+                    if (res && res.ok && res.data){
+                      const subs = res.data.submissions || []
+                      const scores = extractAssignmentScores(subs)
+                      setGradeScores(scores)
+                      setGradePopupOpen(true)
+                    } else {
+                      alert('Failed to load submissions')
+                    }
+                  }catch(e){ console.error('Failed to load submissions for grades', e); alert('Failed to load submissions') }
+                }} style={{marginLeft:6}}>View Grade Distribution</button>
                 <button onClick={()=>{ setModalMode('confirmDeleteAssignment'); setModalPayload({ assignmentId: a.id, assignmentTitle: a.title }); setModalOpen(true) }} style={{marginLeft:6,background:'#e74c3c'}}>Del</button>
               </li>
             ))}
@@ -359,12 +434,12 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                 await submitCourseModal()
                   } else if (modalMode==='createAssignment'){
                     const t = (modalPayload.title||'').trim(); if (!t){ alert('Title required'); return }
-                    const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null, curve_enabled: !!modalPayload.curve_enabled, curve_alpha: modalPayload.curve_alpha, curve_beta: modalPayload.curve_beta, curve_target_median: modalPayload.curve_target_median }
+                    const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null, curve_enabled: !!modalPayload.curve_enabled, curve_alpha: modalPayload.curve_alpha, curve_beta: modalPayload.curve_beta, curve_target_median: modalPayload.curve_target_median, grading_curve: modalPayload.grading_curve || null }
                     const res = await admin.createAssignment(selectedCourse.id, payload)
                     if (res.ok) { loadAssignments(selectedCourse.id); setModalOpen(false) } else alert('Create failed')
               } else if (modalMode==='editAssignment'){
                 const t = (modalPayload.title||'').trim(); if (!t){ alert('Title required'); return }
-                const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null, curve_enabled: !!modalPayload.curve_enabled, curve_alpha: modalPayload.curve_alpha, curve_beta: modalPayload.curve_beta, curve_target_median: modalPayload.curve_target_median }
+                const payload = { title: t, questions: modalPayload.questions || [], type: modalPayload.type || 'assignment', time_limit_minutes: modalPayload.time_limit_minutes || null, curve_enabled: !!modalPayload.curve_enabled, curve_alpha: modalPayload.curve_alpha, curve_beta: modalPayload.curve_beta, curve_target_median: modalPayload.curve_target_median, grading_curve: modalPayload.grading_curve || null }
                 const res = await admin.updateAssignment(modalPayload.id, payload)
                 if (res.ok) { loadAssignments(modalPayload.courseId); setModalOpen(false) } else alert('Update failed')
               } else if (modalMode==='enrollMember'){
@@ -457,6 +532,32 @@ export default function AdminDashboard({ onClose, fullPage = false }){
               <>
                 <label>Title</label>
                 <input type="text" value={modalPayload.title||''} onChange={e=>setModalPayload(p=>({...p,title:e.target.value}))} />
+
+                <div style={{marginTop:8}}>
+                  <button onClick={async ()=>{
+                    if (!modalPayload?.id) return
+                    setGradeLoading(true)
+                    try{
+                      const res = await admin.getAssignmentSubmissions(modalPayload.id)
+                      if (res && res.ok && res.data){
+                        const subs = res.data.submissions || []
+                        const scores = subs.map(s=>s.score).filter(s=>s!==undefined && s!==null && !Number.isNaN(Number(s))).map(Number)
+                        setGradeScores(scores)
+                        setGradePopupOpen(true)
+                      } else {
+                        alert('Failed to load submissions')
+                      }
+                    }catch(e){ console.error('Failed to load submissions for grades', e); alert('Failed to load submissions') }
+                    finally{ setGradeLoading(false) }
+                  }} disabled={gradeLoading}>{gradeLoading ? 'Loading...' : 'View Grade Distribution'}</button>
+                </div>
+
+                
+
+                
+                
+                
+                
                 {modalMode==='editCourse' && (
                   <div style={{marginTop:12,borderTop:'1px solid #eee',paddingTop:12}}>
                     <label style={{display:'block',marginBottom:6}}>Manage Databases</label>
@@ -527,12 +628,23 @@ export default function AdminDashboard({ onClose, fullPage = false }){
                     </label>
                     {modalPayload.curve_enabled && (
                       <div style={{display:'flex',gap:8,alignItems:'center',marginTop:8}}>
-                        <label style={{margin:0}}>Alpha</label>
-                        <input type="number" step="0.1" min="0.1" value={modalPayload.curve_alpha || 5.0} onChange={e=>setModalPayload(p=>({...p, curve_alpha: parseFloat(e.target.value||0) }))} style={{width:88}} />
-                        <label style={{margin:0}}>Beta</label>
-                        <input type="number" step="0.1" min="0.1" value={modalPayload.curve_beta || 2.0} onChange={e=>setModalPayload(p=>({...p, curve_beta: parseFloat(e.target.value||0) }))} style={{width:88}} />
-                        <label style={{margin:0}}>Target median (0-1)</label>
-                        <input type="number" step="0.01" min="0" max="1" value={modalPayload.curve_target_median || 0.75} onChange={e=>setModalPayload(p=>({...p, curve_target_median: parseFloat(e.target.value||0) }))} style={{width:100}} />
+                        <button onClick={async ()=>{
+                          // load current submissions for this assignment if available
+                          try{
+                            if (modalPayload && modalPayload.id){
+                              const res = await admin.getAssignmentSubmissions(modalPayload.id)
+                              if (res && res.ok && res.data){
+                                const subs = res.data.submissions || []
+                                const scores = extractAssignmentScores(subs)
+                                setCurveBuilderScores(scores)
+                              } else setCurveBuilderScores([])
+                            } else {
+                              setCurveBuilderScores([])
+                            }
+                          }catch(e){ console.error('Failed to load submissions for curve builder', e); setCurveBuilderScores([]) }
+                          setCurveBuilderOpen(true)
+                        }}>Curve builder</button>
+                        <div style={{color:'#666',fontSize:12}}>Open the curve builder to preview and save grading curves.</div>
                       </div>
                     )}
                   </div>
@@ -819,6 +931,54 @@ T → K" value={fdTextMap[idx] || ''} onChange={e=>{
                 </div>
               </div>
             ))}
+          </div>
+        </Modal>
+      )}
+      {gradePopupOpen && (
+        <Modal title={`Grade Distribution`} onClose={()=>{ setGradePopupOpen(false); setGradeScores([]) }} submitLabel="Close" onSubmit={()=>{ setGradePopupOpen(false); setGradeScores([]) }}>
+          <div style={{maxHeight:420,overflow:'auto'}}>
+            <GradeDistributionPopup
+              scores={gradeScores}
+              bins={30}
+              curveType={(modalPayload && modalPayload.grading_curve) || 'raw'}
+              // view mode: cluster points by 5% bins for the grade-distribution viewer
+              clusterBy={5}
+              viewOnly={true}
+              onChangeCurve={(curveObj)=>{
+                // curveObj: { type, params }
+                setModalPayload(p=>({...p, grading_curve: { ...(p.grading_curve||{}), ...(curveObj||{}) }}))
+              }}
+            />
+          </div>
+        </Modal>
+      )}
+
+      {curveBuilderOpen && (
+        <Modal title={`Curve Builder`} onClose={()=>{ setCurveBuilderOpen(false); setCurveBuilderScores([]) }} submitLabel="Save" onSubmit={async ()=>{
+          // Recompute grading_curve from aggregated scores, save to modal payload, and close
+          try{
+            const newGc = regenerateModalGradingCurve(curveBuilderScores)
+            setModalPayload(p => ({ ...p, grading_curve: newGc }))
+          }catch(e){ console.warn('Error regenerating grading curve on save', e) }
+          setModalOpen(true) // keep parent modal open
+          setCurveBuilderOpen(false)
+        }}>
+          <div style={{maxHeight:520,overflow:'auto',display:'flex',flexDirection:'column',gap:8}}>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <div style={{flex:1}}>
+                <GradeDistributionPopup
+                  scores={curveBuilderScores}
+                  bins={30}
+                  curveType={(modalPayload && modalPayload.grading_curve) || 'raw'}
+                  previewOnly={true}
+                  onChangeCurve={(curveObj)=>{ setModalPayload(p=>({...p, grading_curve: { ...(p.grading_curve||{}), ...(curveObj||{}) }})) }}
+                />
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={()=>{ setCurveBuilderOpen(false); setCurveBuilderScores([]) }}>Cancel</button>
+              <button onClick={()=>{ /* modal submit will handle save */ }}>Preview Distribution</button>
+            </div>
           </div>
         </Modal>
       )}
